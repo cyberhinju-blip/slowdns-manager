@@ -26,12 +26,14 @@ NC='\033[0m'
 INSTALL_DIR="/etc/dnstt"
 SSH_DIR="/etc/slowdns"
 USER_DB="$SSH_DIR/users.txt"
+USAGE_DIR="$SSH_DIR/usage"
+BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
 
 # Create directories
-mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR"
+mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR" "$USAGE_DIR"
 touch "$USER_DB"
 
 #============================================
@@ -1482,6 +1484,14 @@ add_ssh_user() {
         5) days=365 ;;
         *) days=30 ;;
     esac
+
+    echo ""
+    echo -e "${YELLOW}Data Limit (GB) — 0 = Unlimited:${NC}"
+    read -p "GB Limit [default=0]: " gb_input
+    gb_limit=${gb_input:-0}
+    if ! [[ "$gb_limit" =~ ^[0-9]+$ ]]; then
+        gb_limit=0
+    fi
     
     echo ""
     echo -e "${CYAN}Creating user...${NC}"
@@ -1491,9 +1501,12 @@ add_ssh_user() {
     
     exp_date=$(date -d "+$days days" +"%Y-%m-%d")
     chage -E "$exp_date" "$username" 2>/dev/null
-    
-    echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")" >> "$USER_DB"
-    
+
+    echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")|$gb_limit|active" >> "$USER_DB"
+
+    setup_user_quota "$username" "$gb_limit"
+    update_motd_script
+
     echo -e "${GREEN}✓ User created${NC}"
     echo ""
     log_success "SSH User Created!"
@@ -1502,6 +1515,11 @@ add_ssh_user() {
     echo -e "  ${WHITE}🔐 Password:${NC} ${GREEN}$password${NC}"
     echo -e "  ${WHITE}📅 Expires:${NC}  ${YELLOW}$exp_date${NC}"
     echo -e "  ${WHITE}⏳ Valid:${NC}    ${GREEN}$days days${NC}"
+    if [[ "$gb_limit" -gt 0 ]]; then
+        echo -e "  ${WHITE}📶 GB Limit:${NC} ${CYAN}${gb_limit} GB${NC}"
+    else
+        echo -e "  ${WHITE}📶 GB Limit:${NC} ${GREEN}Unlimited${NC}"
+    fi
     echo ""
     
     press_enter
@@ -1539,6 +1557,13 @@ delete_ssh_user() {
     pkill -u "$username" 2>/dev/null || true
     userdel -r "$username" 2>/dev/null || true
     sed -i "/^$username|/d" "$USER_DB"
+
+    iptables -D OUTPUT -m owner --uid-owner "$username" -j "slowdns_$username" 2>/dev/null || true
+    iptables -F "slowdns_$username" 2>/dev/null || true
+    iptables -X "slowdns_$username" 2>/dev/null || true
+    rm -f "$USAGE_DIR/$username"
+
+    update_motd_script
     
     echo -e "${GREEN}✓ User deleted${NC}"
     log_success "User $username removed"
@@ -1548,58 +1573,565 @@ delete_ssh_user() {
 
 list_ssh_users() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                    SSH USERS                         ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                        SSH USERS                                 ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    
+
     if [[ ! -s "$USER_DB" ]]; then
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "            ${YELLOW}No users found${NC}"
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     else
-        echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-        printf "${CYAN}║${NC} ${WHITE}%-12s %-12s %-12s %-10s %-12s${NC} ${CYAN}║${NC}\n" "USERNAME" "PASSWORD" "EXPIRES" "DAYS LEFT" "STATUS"
-        echo -e "${CYAN}╠═══════════════════════════════════════════════════════════════╣${NC}"
-        
+        printf "${CYAN}╔${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}┬${NC}${WHITE}%-9s${NC}${CYAN}┬${NC}${WHITE}%-14s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}╗${NC}\n" \
+            " USERNAME" " PASSWORD" " EXPIRES" " DAYS" " DATA USED/LIMIT" " STATUS" " LOCK"
+        echo -e "${CYAN}╠════════════╪════════════╪══════════╪═════════╪══════════════╪══════════╪══════════╣${NC}"
+
         local user_count=0
         local active_count=0
-        
-        while IFS='|' read -r user pass exp created; do
+
+        while IFS='|' read -r user pass exp created gb_limit acc_status; do
+            [[ -z "$user" ]] && continue
             user_count=$((user_count + 1))
-            
+
+            gb_limit=${gb_limit:-0}
+            acc_status=${acc_status:-active}
+
             current=$(date +%s)
             exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
             days_left=$(( (exp_unix - current) / 86400 ))
-            
-            if [[ $current -gt $exp_unix ]]; then
-                status="${RED}● EXPIRED${NC}"
+
+            if [[ "$acc_status" == "locked" ]]; then
+                exp_status="${RED}● LOCKED${NC}"
+                days_display="${RED}-${NC}"
+            elif [[ $current -gt $exp_unix ]]; then
+                exp_status="${RED}● EXPIRED${NC}"
                 days_display="${RED}0${NC}"
+            elif [[ $days_left -le 3 ]]; then
+                exp_status="${RED}● EXPIRING${NC}"
+                days_display="${RED}$days_left${NC}"
+            elif [[ $days_left -le 7 ]]; then
+                exp_status="${YELLOW}● WARN${NC}"
+                days_display="${YELLOW}$days_left${NC}"
             else
-                if [[ $days_left -le 3 ]]; then
-                    status="${RED}● EXPIRING${NC}"
-                    days_display="${RED}$days_left${NC}"
-                elif [[ $days_left -le 7 ]]; then
-                    status="${YELLOW}● WARNING${NC}"
-                    days_display="${YELLOW}$days_left${NC}"
-                else
-                    status="${GREEN}● ACTIVE${NC}"
-                    days_display="${GREEN}$days_left${NC}"
-                    active_count=$((active_count + 1))
-                fi
+                exp_status="${GREEN}● ACTIVE${NC}"
+                days_display="${GREEN}$days_left${NC}"
+                active_count=$((active_count + 1))
             fi
-            
-            printf "${CYAN}║${NC} ${WHITE}%-12s %-12s %-12s %-10s${NC} " "$user" "$pass" "$exp" "$days_display"
-            echo -e "$status ${CYAN}║${NC}"
-            
+
+            usage_gb=$(get_user_usage_gb "$user")
+            if [[ "$gb_limit" -gt 0 ]]; then
+                if (( $(echo "$usage_gb >= $gb_limit" | bc -l 2>/dev/null || echo 0) )); then
+                    data_display="${RED}${usage_gb}/${gb_limit}GB${NC}"
+                else
+                    data_display="${CYAN}${usage_gb}/${gb_limit}GB${NC}"
+                fi
+            else
+                data_display="${GREEN}${usage_gb}/∞${NC}"
+            fi
+
+            lock_display="${GREEN}OPEN${NC}"
+            [[ "$acc_status" == "locked" ]] && lock_display="${RED}LOCK${NC}"
+
+            printf "${CYAN}║${NC} %-10s ${CYAN}│${NC} %-10s ${CYAN}│${NC} %-8s ${CYAN}│${NC} " "$user" "$pass" "$exp"
+            echo -ne "$days_display"
+            printf " ${CYAN}│${NC} "
+            echo -ne "$data_display"
+            printf " ${CYAN}│${NC} "
+            echo -ne "$exp_status"
+            printf " ${CYAN}│${NC} "
+            echo -e "$lock_display ${CYAN}║${NC}"
+
         done < "$USER_DB"
-        
-        echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
+
+        echo -e "${CYAN}╚════════════╧════════════╧══════════╧═════════╧══════════════╧══════════╧══════════╝${NC}"
         echo ""
-        echo -e "${CYAN}Total Users: ${WHITE}$user_count${NC}  |  ${GREEN}Active: $active_count${NC}  |  ${RED}Expired: $((user_count - active_count))${NC}"
+        echo -e "${CYAN}Total: ${WHITE}$user_count${NC}  |  ${GREEN}Active: $active_count${NC}  |  ${RED}Expired/Locked: $((user_count - active_count))${NC}"
     fi
-    
+
     press_enter
+}
+
+#============================================
+# SSH USER QUOTA HELPERS
+#============================================
+
+setup_user_quota() {
+    local username="$1"
+    local gb_limit="$2"
+
+    local uid
+    uid=$(id -u "$username" 2>/dev/null) || return
+
+    iptables -N "slowdns_$username" 2>/dev/null || iptables -F "slowdns_$username" 2>/dev/null
+    iptables -C OUTPUT -m owner --uid-owner "$uid" -j "slowdns_$username" 2>/dev/null || \
+        iptables -I OUTPUT -m owner --uid-owner "$uid" -j "slowdns_$username" 2>/dev/null
+    iptables -A "slowdns_$username" -j RETURN 2>/dev/null
+
+    if [[ "$gb_limit" -gt 0 ]]; then
+        echo "0" > "$USAGE_DIR/$username"
+    else
+        echo "0" > "$USAGE_DIR/$username"
+    fi
+}
+
+get_user_usage_gb() {
+    local username="$1"
+    local bytes=0
+
+    local chain="slowdns_$username"
+    local raw
+    raw=$(iptables -L "$chain" -xvn 2>/dev/null | awk 'NR==3{print $2}')
+    [[ "$raw" =~ ^[0-9]+$ ]] && bytes=$raw
+
+    local saved=0
+    [[ -f "$USAGE_DIR/$username" ]] && saved=$(cat "$USAGE_DIR/$username" 2>/dev/null)
+    [[ "$saved" =~ ^[0-9]+$ ]] || saved=0
+
+    local total=$(( bytes + saved ))
+    local gb
+    gb=$(awk "BEGIN{printf \"%.2f\", $total/1073741824}")
+    echo "$gb"
+}
+
+save_user_usage() {
+    local username="$1"
+    local chain="slowdns_$username"
+    local raw
+    raw=$(iptables -L "$chain" -xvn 2>/dev/null | awk 'NR==3{print $2}')
+    [[ "$raw" =~ ^[0-9]+$ ]] || return
+    local saved=0
+    [[ -f "$USAGE_DIR/$username" ]] && saved=$(cat "$USAGE_DIR/$username" 2>/dev/null)
+    [[ "$saved" =~ ^[0-9]+$ ]] || saved=0
+    echo $(( raw + saved )) > "$USAGE_DIR/$username"
+    iptables -Z "$chain" 2>/dev/null
+}
+
+check_quota_all_users() {
+    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+        [[ -z "$user" || "$acc_status" == "locked" ]] && continue
+        gb_limit=${gb_limit:-0}
+        [[ "$gb_limit" -eq 0 ]] && continue
+        usage_gb=$(get_user_usage_gb "$user")
+        exceeded=$(awk "BEGIN{print ($usage_gb >= $gb_limit) ? 1 : 0}")
+        if [[ "$exceeded" == "1" ]]; then
+            passwd -l "$user" 2>/dev/null
+            sed -i "s/^$user|$pass|$exp|$created|$gb_limit|active/$user|$pass|$exp|$created|$gb_limit|locked/" "$USER_DB"
+            log_error "User $user exceeded ${gb_limit}GB quota — LOCKED"
+        fi
+    done < "$USER_DB"
+}
+
+update_motd_script() {
+    local motd_script="/etc/profile.d/slowdns_info.sh"
+    cat > "$motd_script" << 'MOTD_EOF'
+#!/bin/bash
+USER_DB="/etc/slowdns/users.txt"
+USAGE_DIR="/etc/slowdns/usage"
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+WHITE='\033[1;37m'
+NC='\033[0m'
+
+[[ ! -f "$USER_DB" ]] && exit 0
+
+me=$(whoami)
+user_line=$(grep "^${me}|" "$USER_DB" 2>/dev/null)
+[[ -z "$user_line" ]] && exit 0
+
+IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
+gb_limit=${gb_limit:-0}
+acc_status=${acc_status:-active}
+
+current=$(date +%s)
+exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
+days_left=$(( (exp_unix - current) / 86400 ))
+
+bytes=0
+chain="slowdns_${me}"
+raw=$(iptables -L "$chain" -xvn 2>/dev/null | awk 'NR==3{print $2}')
+[[ "$raw" =~ ^[0-9]+$ ]] && bytes=$raw
+saved=0
+[[ -f "$USAGE_DIR/$me" ]] && saved=$(cat "$USAGE_DIR/$me" 2>/dev/null)
+[[ "$saved" =~ ^[0-9]+$ ]] || saved=0
+total=$(( bytes + saved ))
+usage_gb=$(awk "BEGIN{printf \"%.2f\", $total/1073741824}")
+
+echo ""
+echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║         SSH TUNNEL MANAGER v8.0 ULTRA 👑             ║${NC}"
+echo -e "${CYAN}╠═══════════════════════════════════════════════════════╣${NC}"
+printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "👤 Username:" "$me"
+printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${YELLOW}%-32s${NC}${CYAN}║${NC}\n" "📅 Expires:" "$exp"
+
+if [[ "$acc_status" == "locked" ]]; then
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "🔒 Status:" "LOCKED"
+elif [[ $current -gt $exp_unix ]]; then
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "⏳ Days Left:" "EXPIRED"
+else
+    if [[ $days_left -le 3 ]]; then
+        printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "⏳ Days Left:" "${days_left} days (EXPIRING SOON!)"
+    else
+        printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "⏳ Days Left:" "${days_left} days"
+    fi
+fi
+
+if [[ "$gb_limit" -gt 0 ]]; then
+    pct=$(awk "BEGIN{printf \"%.0f\", ($usage_gb/$gb_limit)*100}")
+    bar_fill=$(awk "BEGIN{printf \"%d\", ($usage_gb/$gb_limit)*20}")
+    bar_empty=$(( 20 - bar_fill ))
+    bar=$(printf '#%.0s' $(seq 1 $bar_fill 2>/dev/null))$(printf '.%.0s' $(seq 1 $bar_empty 2>/dev/null))
+    if [[ $pct -ge 90 ]]; then
+        col="${RED}"
+    elif [[ $pct -ge 70 ]]; then
+        col="${YELLOW}"
+    else
+        col="${GREEN}"
+    fi
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${col}%-32s${NC}${CYAN}║${NC}\n" "📶 Data Used:" "${usage_gb} GB / ${gb_limit} GB (${pct}%)"
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${col}[%-20s]${NC} ${WHITE}%-9s${NC}${CYAN}║${NC}\n" "  Progress:" "$bar" "${pct}%"
+else
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "📶 Data Used:" "${usage_gb} GB / Unlimited"
+fi
+
+echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+echo ""
+MOTD_EOF
+    chmod +x "$motd_script" 2>/dev/null
+}
+
+#============================================
+# RENEW SSH USER
+#============================================
+
+renew_ssh_user() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                 RENEW SSH USER                       ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    if [[ ! -s "$USER_DB" ]]; then
+        log_error "No users found"
+        press_enter
+        return
+    fi
+
+    echo -e "${YELLOW}Active users:${NC}"
+    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+        [[ -z "$user" ]] && continue
+        echo -e "  ${GREEN}→${NC} $user  ${WHITE}(expires: $exp)${NC}"
+    done < "$USER_DB"
+    echo ""
+
+    read -p "Username to renew: " username
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        press_enter
+        return
+    fi
+
+    local user_line
+    user_line=$(grep "^$username|" "$USER_DB")
+    if [[ -z "$user_line" ]]; then
+        log_error "User not found in database"
+        press_enter
+        return
+    fi
+
+    echo ""
+    echo -e "${YELLOW}Select new expiration period:${NC}"
+    echo ""
+    echo -e "  ${CYAN}1)${NC} 1 Day"
+    echo -e "  ${CYAN}2)${NC} 7 Days"
+    echo -e "  ${CYAN}3)${NC} 30 Days ${GREEN}⭐${NC}"
+    echo -e "  ${CYAN}4)${NC} 90 Days"
+    echo -e "  ${CYAN}5)${NC} 365 Days"
+    echo ""
+    read -p "Choice [1-5, default=3]: " exp_choice
+
+    case ${exp_choice:-3} in
+        1) days=1 ;;
+        2) days=7 ;;
+        3) days=30 ;;
+        4) days=90 ;;
+        5) days=365 ;;
+        *) days=30 ;;
+    esac
+
+    IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
+    gb_limit=${gb_limit:-0}
+    acc_status=${acc_status:-active}
+
+    local new_exp
+    new_exp=$(date -d "+$days days" +"%Y-%m-%d")
+
+    chage -E "$new_exp" "$username" 2>/dev/null
+
+    sed -i "s|^$username|.*|$username|$pass|$new_exp|$created|$gb_limit|$acc_status|" "$USER_DB" 2>/dev/null || \
+    sed -i "/^$username|/c\\$username|$pass|$new_exp|$created|$gb_limit|$acc_status" "$USER_DB"
+
+    if [[ "$acc_status" == "locked" ]]; then
+        passwd -u "$username" 2>/dev/null
+        sed -i "/^$username|/c\\$username|$pass|$new_exp|$created|$gb_limit|active" "$USER_DB"
+        echo -e "${GREEN}✓ Account unlocked automatically during renewal${NC}"
+    fi
+
+    update_motd_script
+
+    echo ""
+    log_success "User $username renewed!"
+    echo -e "  ${WHITE}📅 New Expiry:${NC} ${GREEN}$new_exp${NC}"
+    echo -e "  ${WHITE}⏳ Valid:${NC}      ${GREEN}$days days${NC}"
+    echo ""
+
+    press_enter
+}
+
+#============================================
+# LOCK / UNLOCK SSH USER
+#============================================
+
+lock_ssh_user() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║               LOCK SSH ACCOUNT                       ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    if [[ ! -s "$USER_DB" ]]; then
+        log_error "No users found"
+        press_enter
+        return
+    fi
+
+    echo -e "${YELLOW}Users:${NC}"
+    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+        [[ -z "$user" ]] && continue
+        acc_status=${acc_status:-active}
+        if [[ "$acc_status" == "locked" ]]; then
+            echo -e "  ${RED}🔒 $user  (already locked)${NC}"
+        else
+            echo -e "  ${GREEN}🔓 $user  (active)${NC}"
+        fi
+    done < "$USER_DB"
+    echo ""
+
+    read -p "Username to lock: " username
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        press_enter
+        return
+    fi
+
+    local user_line
+    user_line=$(grep "^$username|" "$USER_DB")
+    if [[ -z "$user_line" ]]; then
+        log_error "User not found"
+        press_enter
+        return
+    fi
+
+    IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
+    gb_limit=${gb_limit:-0}
+
+    if [[ "${acc_status:-active}" == "locked" ]]; then
+        log_error "User $username is already locked"
+        press_enter
+        return
+    fi
+
+    passwd -l "$username" 2>/dev/null
+    pkill -u "$username" 2>/dev/null || true
+    sed -i "/^$username|/c\\$username|$pass|$exp|$created|$gb_limit|locked" "$USER_DB"
+    update_motd_script
+
+    echo ""
+    log_success "User $username LOCKED"
+    echo -e "  ${RED}🔒 All sessions terminated${NC}"
+    echo -e "  ${RED}🔒 Login disabled${NC}"
+    echo ""
+
+    press_enter
+}
+
+unlock_ssh_user() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              UNLOCK SSH ACCOUNT                      ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    if [[ ! -s "$USER_DB" ]]; then
+        log_error "No users found"
+        press_enter
+        return
+    fi
+
+    echo -e "${YELLOW}Users:${NC}"
+    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+        [[ -z "$user" ]] && continue
+        acc_status=${acc_status:-active}
+        if [[ "$acc_status" == "locked" ]]; then
+            echo -e "  ${RED}🔒 $user  (locked)${NC}"
+        else
+            echo -e "  ${GREEN}🔓 $user  (active)${NC}"
+        fi
+    done < "$USER_DB"
+    echo ""
+
+    read -p "Username to unlock: " username
+
+    if [[ -z "$username" ]]; then
+        log_error "Username required"
+        press_enter
+        return
+    fi
+
+    local user_line
+    user_line=$(grep "^$username|" "$USER_DB")
+    if [[ -z "$user_line" ]]; then
+        log_error "User not found"
+        press_enter
+        return
+    fi
+
+    IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
+    gb_limit=${gb_limit:-0}
+
+    if [[ "${acc_status:-active}" != "locked" ]]; then
+        log_error "User $username is not locked"
+        press_enter
+        return
+    fi
+
+    passwd -u "$username" 2>/dev/null
+    sed -i "/^$username|/c\\$username|$pass|$exp|$created|$gb_limit|active" "$USER_DB"
+    update_motd_script
+
+    echo ""
+    log_success "User $username UNLOCKED"
+    echo -e "  ${GREEN}🔓 Login re-enabled${NC}"
+    echo ""
+
+    press_enter
+}
+
+#============================================
+# SSH BANNER MANAGEMENT
+#============================================
+
+manage_ssh_banner() {
+    while true; do
+        show_banner
+        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║              SSH BANNER / SERVER MESSAGE              ║${NC}"
+        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        echo ""
+
+        if [[ -f "$BANNER_FILE" ]]; then
+            echo -e "${GREEN}✅ Banner is SET${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━ Current Banner ━━━━━━━━━━${NC}"
+            cat "$BANNER_FILE"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        else
+            echo -e "${RED}⚠️  No banner set yet${NC}"
+        fi
+        echo ""
+        echo -e "  ${GREEN}1)${NC} ✏️  Set / Edit Banner Text"
+        echo -e "  ${YELLOW}2)${NC} 🎨 Set Default DNSTT Banner"
+        echo -e "  ${RED}3)${NC} 🗑️  Remove Banner"
+        echo -e "  ${WHITE}0)${NC} ⬅️  Back"
+        echo ""
+        read -p "Choice: " choice
+
+        case $choice in
+            1) edit_ssh_banner ;;
+            2) set_default_ssh_banner ;;
+            3) remove_ssh_banner ;;
+            0) return ;;
+            *) log_error "Invalid choice"; sleep 1 ;;
+        esac
+    done
+}
+
+edit_ssh_banner() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║               EDIT SSH BANNER                        ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "${YELLOW}Enter banner text (type END on a new line to finish):${NC}"
+    echo -e "${WHITE}(This message is shown to users BEFORE they log in)${NC}"
+    echo ""
+
+    local banner_text=""
+    while IFS= read -r line; do
+        [[ "$line" == "END" ]] && break
+        banner_text+="$line"$'\n'
+    done
+
+    if [[ -z "$banner_text" ]]; then
+        log_error "Banner text cannot be empty"
+        press_enter
+        return
+    fi
+
+    echo "$banner_text" > "$BANNER_FILE"
+
+    apply_ssh_banner_config
+
+    log_success "SSH Banner updated!"
+    echo ""
+    press_enter
+}
+
+set_default_ssh_banner() {
+    cat > "$BANNER_FILE" << 'BANNER_EOF'
+
+╔═══════════════════════════════════════════════════════╗
+║        SSH TUNNEL MANAGER v8.0 ULTRA  👑 💯          ║
+║            CREATED BY THE KING                        ║
+╠═══════════════════════════════════════════════════════╣
+║  ⚠️   AUTHORIZED ACCESS ONLY                          ║
+║  🔐  All sessions are monitored and logged            ║
+║  📶  Powered by DNSTT Ultra Speed Edition             ║
+║  🌐  Maximum Speed: 10-25 Mbps                        ║
+╚═══════════════════════════════════════════════════════╝
+
+BANNER_EOF
+
+    apply_ssh_banner_config
+    log_success "Default DNSTT banner applied!"
+    echo ""
+    press_enter
+}
+
+remove_ssh_banner() {
+    read -p "Remove SSH banner? [yes/no]: " confirm
+    if [[ "$confirm" == "yes" ]]; then
+        rm -f "$BANNER_FILE"
+        sed -i '/^Banner /d' /etc/ssh/sshd_config 2>/dev/null
+        systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
+        log_success "Banner removed"
+    else
+        echo -e "${YELLOW}Cancelled${NC}"
+    fi
+    echo ""
+    press_enter
+}
+
+apply_ssh_banner_config() {
+    if grep -q "^Banner " /etc/ssh/sshd_config 2>/dev/null; then
+        sed -i "s|^Banner .*|Banner $BANNER_FILE|" /etc/ssh/sshd_config
+    else
+        echo "Banner $BANNER_FILE" >> /etc/ssh/sshd_config
+    fi
+    systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
 }
 
 #============================================
@@ -2238,36 +2770,52 @@ ssh_menu() {
         echo -e "${CYAN}║            SSH USER MANAGEMENT                       ║${NC}"
         echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
         echo ""
-        
+
         if [[ -s "$USER_DB" ]]; then
-            local total_users=$(wc -l < "$USER_DB")
+            local total_users=$(grep -c . "$USER_DB" 2>/dev/null || echo 0)
             local active_users=0
+            local locked_users=0
             local current=$(date +%s)
-            
-            while IFS='|' read -r user pass exp created; do
+
+            while IFS='|' read -r user pass exp created gb_limit acc_status; do
+                [[ -z "$user" ]] && continue
+                acc_status=${acc_status:-active}
+                if [[ "$acc_status" == "locked" ]]; then
+                    locked_users=$((locked_users + 1))
+                    continue
+                fi
                 exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
                 if [[ $current -le $exp_unix ]]; then
                     active_users=$((active_users + 1))
                 fi
             done < "$USER_DB"
-            
-            echo -e "  ${WHITE}📊 Total: ${CYAN}$total_users${NC}  |  ${GREEN}Active: $active_users${NC}  |  ${RED}Expired: $((total_users - active_users))${NC}"
+
+            local expired=$(( total_users - active_users - locked_users ))
+            echo -e "  ${WHITE}📊 Total: ${CYAN}$total_users${NC}  |  ${GREEN}Active: $active_users${NC}  |  ${RED}Expired: $expired${NC}  |  ${YELLOW}Locked: $locked_users${NC}"
             echo ""
         fi
-        
+
         echo -e "  ${GREEN}1)${NC} 👤 Add New User"
-        echo -e "  ${YELLOW}2)${NC} 📋 List All Users"
-        echo -e "  ${RED}3)${NC} 🗑️  Delete User"
+        echo -e "  ${CYAN}2)${NC} 📋 List All Users"
+        echo -e "  ${YELLOW}3)${NC} 🔄 Renew User"
+        echo -e "  ${RED}4)${NC} 🔒 Lock User"
+        echo -e "  ${GREEN}5)${NC} 🔓 Unlock User"
+        echo -e "  ${PURPLE}6)${NC} 🖥️  SSH Banner / Server Message"
+        echo -e "  ${RED}7)${NC} 🗑️  Delete User"
         echo -e "  ${WHITE}0)${NC} ⬅️  Back"
         echo ""
         read -p "Choice: " choice
-        
+
         case $choice in
             1) add_ssh_user ;;
             2) list_ssh_users ;;
-            3) delete_ssh_user ;;
+            3) renew_ssh_user ;;
+            4) lock_ssh_user ;;
+            5) unlock_ssh_user ;;
+            6) manage_ssh_banner ;;
+            7) delete_ssh_user ;;
             0) return ;;
-            *) 
+            *)
                 log_error "Invalid choice"
                 sleep 1
                 ;;
