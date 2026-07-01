@@ -27,13 +27,14 @@ INSTALL_DIR="/etc/dnstt"
 SSH_DIR="/etc/slowdns"
 USER_DB="$SSH_DIR/users.txt"
 USAGE_DIR="$SSH_DIR/usage"
+BACKUP_DIR="$SSH_DIR/backups"
 BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
 
 # Create directories
-mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR" "$USAGE_DIR"
+mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR" "$USAGE_DIR" "$BACKUP_DIR"
 touch "$USER_DB"
 
 #============================================
@@ -1492,7 +1493,22 @@ add_ssh_user() {
     if ! [[ "$gb_limit" =~ ^[0-9]+$ ]]; then
         gb_limit=0
     fi
-    
+
+    echo ""
+    echo -e "${YELLOW}Auto-Renew — Iongeze siku automatically kabla haija-expire:${NC}"
+    echo -e "  ${CYAN}1)${NC} Hapana (Manual renew)"
+    echo -e "  ${CYAN}2)${NC} Renew siku 1 kabla haija-expire (sama na period ya awali)"
+    echo -e "  ${CYAN}3)${NC} Renew siku 3 kabla haija-expire"
+    echo -e "  ${CYAN}4)${NC} Renew siku 7 kabla haija-expire"
+    echo ""
+    read -p "Choice [1-4, default=1]: " ar_choice
+    case ${ar_choice:-1} in
+        2) auto_renew_days=$days; ar_trigger=1 ;;
+        3) auto_renew_days=$days; ar_trigger=3 ;;
+        4) auto_renew_days=$days; ar_trigger=7 ;;
+        *) auto_renew_days=0; ar_trigger=0 ;;
+    esac
+
     echo ""
     echo -e "${CYAN}Creating user...${NC}"
     
@@ -1502,7 +1518,7 @@ add_ssh_user() {
     exp_date=$(date -d "+$days days" +"%Y-%m-%d")
     chage -E "$exp_date" "$username" 2>/dev/null
 
-    echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")|$gb_limit|active" >> "$USER_DB"
+    echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")|$gb_limit|active|$auto_renew_days|$ar_trigger" >> "$USER_DB"
 
     setup_user_quota "$username" "$gb_limit"
     update_motd_script
@@ -1519,6 +1535,11 @@ add_ssh_user() {
         echo -e "  ${WHITE}📶 GB Limit:${NC} ${CYAN}${gb_limit} GB${NC}"
     else
         echo -e "  ${WHITE}📶 GB Limit:${NC} ${GREEN}Unlimited${NC}"
+    fi
+    if [[ "$auto_renew_days" -gt 0 ]]; then
+        echo -e "  ${WHITE}🔄 Auto-Renew:${NC} ${GREEN}${auto_renew_days} siku (trigger: ${ar_trigger}d kabla)${NC}"
+    else
+        echo -e "  ${WHITE}🔄 Auto-Renew:${NC} ${YELLOW}Disabled${NC}"
     fi
     echo ""
     
@@ -2145,6 +2166,445 @@ apply_ssh_banner_config() {
         echo "Banner $BANNER_FILE" >> /etc/ssh/sshd_config
     fi
     systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
+}
+
+#============================================
+# AUTO-RENEW USERS
+#============================================
+
+run_auto_renew() {
+    [[ ! -s "$USER_DB" ]] && return
+    local current
+    current=$(date +%s)
+    local tmp_db
+    tmp_db=$(mktemp)
+    local renewed=0
+
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+        [[ -z "$user" ]] && continue
+        ar_days=${ar_days:-0}
+        ar_trigger=${ar_trigger:-0}
+        acc_status=${acc_status:-active}
+
+        if [[ "$ar_days" -gt 0 && "$acc_status" != "locked" ]]; then
+            exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
+            days_left=$(( (exp_unix - current) / 86400 ))
+
+            if [[ $days_left -le $ar_trigger ]]; then
+                new_exp=$(date -d "+$ar_days days" +"%Y-%m-%d")
+                chage -E "$new_exp" "$user" 2>/dev/null
+                if [[ "$acc_status" == "locked" ]]; then
+                    passwd -u "$user" 2>/dev/null
+                    acc_status="active"
+                fi
+                echo "$user|$pass|$new_exp|$created|$gb_limit|$acc_status|$ar_days|$ar_trigger" >> "$tmp_db"
+                log_success "Auto-Renew: $user → $new_exp (+${ar_days}d)"
+                renewed=$((renewed + 1))
+                continue
+            fi
+        fi
+        echo "$user|$pass|$exp|$created|$gb_limit|$acc_status|$ar_days|$ar_trigger" >> "$tmp_db"
+    done < "$USER_DB"
+
+    mv "$tmp_db" "$USER_DB"
+    [[ $renewed -gt 0 ]] && update_motd_script
+    return $renewed
+}
+
+toggle_auto_renew() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║             AUTO-RENEW SETTINGS                      ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    if [[ ! -s "$USER_DB" ]]; then
+        log_error "No users found"
+        press_enter
+        return
+    fi
+
+    echo -e "${YELLOW}Watumiaji na hali yao ya Auto-Renew:${NC}"
+    echo ""
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+        [[ -z "$user" ]] && continue
+        ar_days=${ar_days:-0}
+        ar_trigger=${ar_trigger:-0}
+        if [[ "$ar_days" -gt 0 ]]; then
+            echo -e "  ${GREEN}🔄 $user${NC}  → Renew ${ar_days}d (trigger: ${ar_trigger}d kabla ya expire)"
+        else
+            echo -e "  ${RED}⏹  $user${NC}  → Auto-Renew DISABLED"
+        fi
+    done < "$USER_DB"
+    echo ""
+
+    read -p "Username: " username
+    [[ -z "$username" ]] && { log_error "Username required"; press_enter; return; }
+
+    local user_line
+    user_line=$(grep "^$username|" "$USER_DB")
+    if [[ -z "$user_line" ]]; then
+        log_error "User not found"
+        press_enter
+        return
+    fi
+
+    IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger <<< "$user_line"
+    ar_days=${ar_days:-0}
+
+    echo ""
+    echo -e "${YELLOW}Chagua mpangilio mpya wa Auto-Renew:${NC}"
+    echo ""
+    echo -e "  ${RED}1)${NC} Zima Auto-Renew"
+    echo -e "  ${CYAN}2)${NC} Renew siku 7 (trigger: siku 1 kabla)"
+    echo -e "  ${CYAN}3)${NC} Renew siku 30 (trigger: siku 3 kabla)"
+    echo -e "  ${CYAN}4)${NC} Renew siku 30 (trigger: siku 7 kabla)"
+    echo -e "  ${CYAN}5)${NC} Renew siku 90 (trigger: siku 7 kabla)"
+    echo -e "  ${CYAN}6)${NC} Weka siku maalum"
+    echo ""
+    read -p "Choice [1-6]: " ar_choice
+
+    case ${ar_choice:-1} in
+        1) new_ar_days=0; new_ar_trigger=0 ;;
+        2) new_ar_days=7;  new_ar_trigger=1 ;;
+        3) new_ar_days=30; new_ar_trigger=3 ;;
+        4) new_ar_days=30; new_ar_trigger=7 ;;
+        5) new_ar_days=90; new_ar_trigger=7 ;;
+        6)
+            read -p "Renew kwa siku ngapi: " new_ar_days
+            read -p "Trigger siku ngapi kabla ya expire: " new_ar_trigger
+            [[ ! "$new_ar_days" =~ ^[0-9]+$ ]]    && new_ar_days=30
+            [[ ! "$new_ar_trigger" =~ ^[0-9]+$ ]] && new_ar_trigger=3
+            ;;
+        *) new_ar_days=0; new_ar_trigger=0 ;;
+    esac
+
+    sed -i "/^$username|/c\\$username|$pass|$exp|$created|$gb_limit|$acc_status|$new_ar_days|$new_ar_trigger" "$USER_DB"
+
+    echo ""
+    if [[ "$new_ar_days" -gt 0 ]]; then
+        log_success "Auto-Renew imewashwa: $username → ${new_ar_days}d (trigger: ${new_ar_trigger}d kabla)"
+    else
+        log_success "Auto-Renew imezimwa kwa $username"
+    fi
+    echo ""
+    press_enter
+}
+
+view_auto_renew_status() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║           AUTO-RENEW STATUS & HISTORY                ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    if [[ ! -s "$USER_DB" ]]; then
+        echo -e "${YELLOW}Hakuna watumiaji.${NC}"
+        press_enter
+        return
+    fi
+
+    local current
+    current=$(date +%s)
+
+    printf "${CYAN}╔${NC}${WHITE}%-14s${NC}${CYAN}┬${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}┬${NC}${WHITE}%-16s${NC}${CYAN}┬${NC}${WHITE}%-12s${NC}${CYAN}╗${NC}\n" \
+        " USERNAME" " EXPIRES" " DAYS" " AUTO-RENEW" " TRIGGER"
+    echo -e "${CYAN}╠══════════════╪════════════╪══════════╪════════════════╪════════════╣${NC}"
+
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+        [[ -z "$user" ]] && continue
+        ar_days=${ar_days:-0}
+        ar_trigger=${ar_trigger:-0}
+        exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo 0)
+        days_left=$(( (exp_unix - current) / 86400 ))
+
+        if [[ "$ar_days" -gt 0 ]]; then
+            ar_display="${GREEN}${ar_days}d${NC}"
+            tr_display="${YELLOW}${ar_trigger}d kabla${NC}"
+        else
+            ar_display="${RED}OFF${NC}"
+            tr_display="${RED}---${NC}"
+        fi
+
+        [[ $days_left -lt 0 ]] && days_left=0
+        [[ $days_left -le 3 ]] && days_col="${RED}" || days_col="${GREEN}"
+
+        printf "${CYAN}║${NC} %-12s ${CYAN}│${NC} %-10s ${CYAN}│${NC} " "$user" "$exp"
+        echo -ne "${days_col}${days_left}d${NC}"
+        printf "       ${CYAN}│${NC} "
+        echo -ne "$ar_display"
+        printf "          ${CYAN}│${NC} "
+        echo -e "$tr_display ${CYAN}║${NC}"
+    done < "$USER_DB"
+
+    echo -e "${CYAN}╚══════════════╧════════════╧══════════╧════════════════╧════════════╝${NC}"
+    echo ""
+    echo -e "${YELLOW}Bonyeza 'R' kurun Auto-Renew sasa, au Enter kurudi:${NC}"
+    read -p "" run_now
+    if [[ "${run_now,,}" == "r" ]]; then
+        run_auto_renew
+        log_success "Auto-Renew imekimbia!"
+    fi
+    press_enter
+}
+
+#============================================
+# BACKUP & RESTORE USERS
+#============================================
+
+backup_users() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║               BACKUP WATUMIAJI                       ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    local ts
+    ts=$(date +"%Y%m%d_%H%M%S")
+    local backup_file="$BACKUP_DIR/bk_users_${ts}.tar.gz"
+
+    echo -e "${CYAN}Inahifadhi backup...${NC}"
+    echo ""
+
+    local tmp_bk
+    tmp_bk=$(mktemp -d)
+
+    cp "$USER_DB" "$tmp_bk/users.txt" 2>/dev/null
+    cp -r "$USAGE_DIR" "$tmp_bk/usage" 2>/dev/null
+    [[ -f "$INSTALL_DIR/connection_info.txt" ]] && cp "$INSTALL_DIR/connection_info.txt" "$tmp_bk/" 2>/dev/null
+    [[ -f "$INSTALL_DIR/ns_domain.txt" ]]        && cp "$INSTALL_DIR/ns_domain.txt"        "$tmp_bk/" 2>/dev/null
+    [[ -f "$INSTALL_DIR/tunnel_domain.txt" ]]    && cp "$INSTALL_DIR/tunnel_domain.txt"    "$tmp_bk/" 2>/dev/null
+    [[ -f "$BANNER_FILE" ]]                       && cp "$BANNER_FILE" "$tmp_bk/ssh_banner" 2>/dev/null
+
+    echo "Backup ya BLACK KILLER SSH Manager" > "$tmp_bk/info.txt"
+    echo "Tarehe: $(date)" >> "$tmp_bk/info.txt"
+    echo "Watumiaji: $(grep -c . "$USER_DB" 2>/dev/null || echo 0)" >> "$tmp_bk/info.txt"
+
+    tar -czf "$backup_file" -C "$tmp_bk" . 2>/dev/null
+    rm -rf "$tmp_bk"
+
+    if [[ -f "$backup_file" ]]; then
+        local size
+        size=$(du -sh "$backup_file" | cut -f1)
+        log_success "Backup imefanikiwa!"
+        echo ""
+        echo -e "  ${WHITE}📦 Faili:${NC}  ${GREEN}$backup_file${NC}"
+        echo -e "  ${WHITE}📏 Ukubwa:${NC} ${CYAN}$size${NC}"
+        echo -e "  ${WHITE}📅 Tarehe:${NC} ${YELLOW}$(date)${NC}"
+        echo ""
+        echo -e "${YELLOW}━━━ Backups Zilizopo ━━━${NC}"
+        ls -lh "$BACKUP_DIR"/*.tar.gz 2>/dev/null | awk '{print "  "$NF"  ("$5")"}' || echo "  Hakuna backup nyingine"
+    else
+        log_error "Backup imeshindwa!"
+    fi
+
+    echo ""
+    press_enter
+}
+
+restore_users() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║               RESTORE WATUMIAJI                      ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    local backups=()
+    while IFS= read -r f; do
+        backups+=("$f")
+    done < <(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+
+    if [[ ${#backups[@]} -eq 0 ]]; then
+        log_error "Hakuna backup iliyopatikana kwenye $BACKUP_DIR"
+        echo ""
+        echo -e "${YELLOW}Ili kuingiza backup kutoka server nyingine:${NC}"
+        echo -e "  ${CYAN}scp user@server:$BACKUP_DIR/bk_users_*.tar.gz $BACKUP_DIR/${NC}"
+        press_enter
+        return
+    fi
+
+    echo -e "${YELLOW}Backups zilizopo:${NC}"
+    echo ""
+    local i=1
+    for f in "${backups[@]}"; do
+        local sz
+        sz=$(du -sh "$f" 2>/dev/null | cut -f1)
+        local dt
+        dt=$(basename "$f" | sed 's/bk_users_//;s/.tar.gz//' | sed 's/_/ /')
+        echo -e "  ${CYAN}$i)${NC} $(basename "$f")  ${WHITE}[$sz]${NC}  ${YELLOW}$dt${NC}"
+        i=$((i + 1))
+    done
+    echo ""
+    read -p "Chagua namba ya backup [1-${#backups[@]}]: " bk_choice
+
+    if ! [[ "$bk_choice" =~ ^[0-9]+$ ]] || [[ $bk_choice -lt 1 || $bk_choice -gt ${#backups[@]} ]]; then
+        log_error "Chaguo si sahihi"
+        press_enter
+        return
+    fi
+
+    local selected="${backups[$((bk_choice - 1))]}"
+    echo ""
+    echo -e "${YELLOW}Chagua aina ya restore:${NC}"
+    echo ""
+    echo -e "  ${CYAN}1)${NC} Merge — Ongeza watumiaji wa backup (bila kufuta waliopo)"
+    echo -e "  ${RED}2)${NC} Replace — Futa wote na weka wa backup (hatari!)"
+    echo ""
+    read -p "Choice [1-2]: " restore_type
+
+    echo ""
+    echo -e "${RED}⚠️  Unafanya restore kutoka: $(basename "$selected")${NC}"
+    read -p "Andika 'yes' kukubali: " confirm
+    [[ "$confirm" != "yes" ]] && { echo -e "${YELLOW}Cancelled${NC}"; press_enter; return; }
+
+    local tmp_restore
+    tmp_restore=$(mktemp -d)
+    tar -xzf "$selected" -C "$tmp_restore" 2>/dev/null
+
+    if [[ ! -f "$tmp_restore/users.txt" ]]; then
+        log_error "Backup si sahihi — users.txt haikupatikana"
+        rm -rf "$tmp_restore"
+        press_enter
+        return
+    fi
+
+    echo ""
+    echo -e "${CYAN}Inafanya restore...${NC}"
+
+    local restored=0
+    local skipped=0
+
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+        [[ -z "$user" ]] && continue
+
+        if [[ "$restore_type" == "2" ]]; then
+            if grep -q "^$user|" "$USER_DB" 2>/dev/null; then
+                sed -i "/^$user|/d" "$USER_DB"
+                pkill -u "$user" 2>/dev/null || true
+                userdel -r "$user" 2>/dev/null || true
+            fi
+        fi
+
+        if grep -q "^$user|" "$USER_DB" 2>/dev/null; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        ar_days=${ar_days:-0}
+        ar_trigger=${ar_trigger:-0}
+        gb_limit=${gb_limit:-0}
+        acc_status=${acc_status:-active}
+
+        useradd -m -s /bin/bash "$user" 2>/dev/null
+        echo "$user:$pass" | chpasswd 2>/dev/null
+        chage -E "$exp" "$user" 2>/dev/null
+        echo "$user|$pass|$exp|$created|$gb_limit|$acc_status|$ar_days|$ar_trigger" >> "$USER_DB"
+        setup_user_quota "$user" "$gb_limit"
+        restored=$((restored + 1))
+    done < "$tmp_restore/users.txt"
+
+    [[ -d "$tmp_restore/usage" ]] && cp -n "$tmp_restore/usage/"* "$USAGE_DIR/" 2>/dev/null
+    [[ -f "$tmp_restore/ssh_banner" && ! -f "$BANNER_FILE" ]] && cp "$tmp_restore/ssh_banner" "$BANNER_FILE" 2>/dev/null
+
+    rm -rf "$tmp_restore"
+    update_motd_script
+
+    echo ""
+    log_success "Restore imekamilika!"
+    echo ""
+    echo -e "  ${GREEN}✓ Waliorejesihwa:${NC} ${WHITE}$restored${NC}"
+    echo -e "  ${YELLOW}⚠ Waliorukwa:${NC}    ${WHITE}$skipped${NC} (walikuwepo tayari)"
+    echo ""
+    press_enter
+}
+
+delete_old_backups() {
+    show_banner
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              BACKUPS ZILIZOPO                        ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    local count
+    count=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
+
+    if [[ $count -eq 0 ]]; then
+        echo -e "${YELLOW}Hakuna backup.${NC}"
+        press_enter
+        return
+    fi
+
+    echo -e "${WHITE}Backups (${count}):${NC}"
+    echo ""
+    ls -lh "$BACKUP_DIR"/*.tar.gz 2>/dev/null | awk '{print NR") "$NF"  ("$5")"}'
+    echo ""
+    local total_size
+    total_size=$(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
+    echo -e "${WHITE}Jumla ya ukubwa: ${CYAN}$total_size${NC}"
+    echo ""
+    echo -e "  ${RED}1)${NC} Futa backup maalum"
+    echo -e "  ${RED}2)${NC} Futa zote isipokuwa ya hivi karibuni"
+    echo -e "  ${WHITE}0)${NC} Rudi"
+    echo ""
+    read -p "Choice: " del_choice
+
+    case $del_choice in
+        1)
+            read -p "Namba ya backup ya kufuta: " del_num
+            local files=("$BACKUP_DIR"/*.tar.gz)
+            local idx=$(( del_num - 1 ))
+            if [[ -f "${files[$idx]}" ]]; then
+                rm -f "${files[$idx]}"
+                log_success "Backup imefutwa: $(basename "${files[$idx]}")"
+            else
+                log_error "Namba si sahihi"
+            fi
+            ;;
+        2)
+            local newest
+            newest=$(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1)
+            local deleted=0
+            for f in "$BACKUP_DIR"/*.tar.gz; do
+                [[ "$f" == "$newest" ]] && continue
+                rm -f "$f"
+                deleted=$((deleted + 1))
+            done
+            log_success "Backups $deleted zimefutwa. Backup ya hivi karibuni imehifadhiwa."
+            ;;
+        0) return ;;
+    esac
+    echo ""
+    press_enter
+}
+
+manage_backup_restore() {
+    while true; do
+        show_banner
+        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+        echo -e "${CYAN}║           BACKUP & RESTORE WATUMIAJI                 ║${NC}"
+        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        echo ""
+
+        local count
+        count=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
+        echo -e "  ${WHITE}📦 Backups zilizopo: ${CYAN}$count${NC}"
+        echo ""
+
+        echo -e "  ${GREEN}1)${NC} 💾 Fanya Backup Sasa"
+        echo -e "  ${YELLOW}2)${NC} 📥 Restore kutoka Backup"
+        echo -e "  ${RED}3)${NC} 🗑️  Simamia / Futa Backups"
+        echo -e "  ${WHITE}0)${NC} ⬅️  Back"
+        echo ""
+        read -p "Choice: " choice
+
+        case $choice in
+            1) backup_users ;;
+            2) restore_users ;;
+            3) delete_old_backups ;;
+            0) return ;;
+            *) log_error "Chaguo si sahihi"; sleep 1 ;;
+        esac
+    done
 }
 
 #============================================
@@ -2777,6 +3237,7 @@ dnstt_menu() {
 }
 
 ssh_menu() {
+    run_auto_renew 2>/dev/null
     while true; do
         show_banner
         echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
@@ -2788,15 +3249,18 @@ ssh_menu() {
             local total_users=$(grep -c . "$USER_DB" 2>/dev/null || echo 0)
             local active_users=0
             local locked_users=0
+            local auto_renew_count=0
             local current=$(date +%s)
 
-            while IFS='|' read -r user pass exp created gb_limit acc_status; do
+            while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
                 [[ -z "$user" ]] && continue
                 acc_status=${acc_status:-active}
+                ar_days=${ar_days:-0}
                 if [[ "$acc_status" == "locked" ]]; then
                     locked_users=$((locked_users + 1))
                     continue
                 fi
+                [[ "$ar_days" -gt 0 ]] && auto_renew_count=$((auto_renew_count + 1))
                 exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
                 if [[ $current -le $exp_unix ]]; then
                     active_users=$((active_users + 1))
@@ -2804,30 +3268,36 @@ ssh_menu() {
             done < "$USER_DB"
 
             local expired=$(( total_users - active_users - locked_users ))
-            echo -e "  ${WHITE}📊 Total: ${CYAN}$total_users${NC}  |  ${GREEN}Active: $active_users${NC}  |  ${RED}Expired: $expired${NC}  |  ${YELLOW}Locked: $locked_users${NC}"
+            echo -e "  ${WHITE}📊 Total: ${CYAN}$total_users${NC}  |  ${GREEN}Active: $active_users${NC}  |  ${RED}Expired: $expired${NC}  |  ${YELLOW}Locked: $locked_users${NC}  |  ${GREEN}🔄 Auto: $auto_renew_count${NC}"
             echo ""
         fi
 
         echo -e "  ${GREEN}1)${NC} 👤 Add New User"
         echo -e "  ${CYAN}2)${NC} 📋 List All Users"
-        echo -e "  ${YELLOW}3)${NC} 🔄 Renew User"
+        echo -e "  ${YELLOW}3)${NC} 🔄 Renew User (Manual)"
         echo -e "  ${RED}4)${NC} 🔒 Lock User"
         echo -e "  ${GREEN}5)${NC} 🔓 Unlock User"
         echo -e "  ${PURPLE}6)${NC} 🖥️  SSH Banner / Server Message"
-        echo -e "  ${RED}7)${NC} 🗑️  Delete User"
+        echo -e "  ${GREEN}7)${NC} ♻️  Auto-Renew Settings"
+        echo -e "  ${CYAN}8)${NC} 📊 Auto-Renew Status"
+        echo -e "  ${YELLOW}9)${NC} 💾 Backup & Restore"
+        echo -e "  ${RED}10)${NC} 🗑️  Delete User"
         echo -e "  ${WHITE}0)${NC} ⬅️  Back"
         echo ""
         read -p "Choice: " choice
 
         case $choice in
-            1) add_ssh_user ;;
-            2) list_ssh_users ;;
-            3) renew_ssh_user ;;
-            4) lock_ssh_user ;;
-            5) unlock_ssh_user ;;
-            6) manage_ssh_banner ;;
-            7) delete_ssh_user ;;
-            0) return ;;
+            1)  add_ssh_user ;;
+            2)  list_ssh_users ;;
+            3)  renew_ssh_user ;;
+            4)  lock_ssh_user ;;
+            5)  unlock_ssh_user ;;
+            6)  manage_ssh_banner ;;
+            7)  toggle_auto_renew ;;
+            8)  view_auto_renew_status ;;
+            9)  manage_backup_restore ;;
+            10) delete_ssh_user ;;
+            0)  return ;;
             *)
                 log_error "Invalid choice"
                 sleep 1
