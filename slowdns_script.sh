@@ -2,7 +2,7 @@
 
 ##############################################
 # DNSTT ULTRA SPEED - SSH OPTIMIZED EDITION
-# Created By BLACK KILLER
+# Created By MR BLACK KILLER
 # Version: 8.0.0 - Maximum Speed SSH
 # Optimized for 10-25 Mbps speeds
 # V2Ray removed - Pure SSH performance
@@ -46,6 +46,7 @@ show_banner() {
     echo -e "${RED}"
     cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
+║▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓║
 ║                                                               ║
 ║  ██████╗ ██╗      █████╗  ██████╗██╗  ██╗                    ║
 ║  ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝                    ║
@@ -61,14 +62,13 @@ show_banner() {
 ║  ██║  ██╗██║███████╗███████╗███████╗██║  ██║                 ║
 ║  ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                 ║
 ║                                                               ║
-║            SSH TUNNEL MANAGER v8.0 ULTRA                     ║
-║         Maximum Speed Edition - 10-25 Mbps                   ║
-║                SSH ONLY - NO V2RAY                           ║
+║  ╔═══════════════════════════════════════════════════════╗   ║
+║  ║     ☠  SSH TUNNEL MANAGER v8.0 ULTRA  ☠             ║   ║
+║  ║         ▸▸ CREATED BY BLACK KILLER ◂◂               ║   ║
+║  ║         Maximum Speed Edition • 10-25 Mbps           ║   ║
+║  ╚═══════════════════════════════════════════════════════╝   ║
 ║                                                               ║
-║       ╔═══════════════════════════════════════╗              ║
-║       ║       CREATED BY BLACK KILLER         ║              ║
-║       ╚═══════════════════════════════════════╝              ║
-║                                                               ║
+║▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓║
 ╚═══════════════════════════════════════════════════════════════╝
 EOF
     echo -e "${NC}"
@@ -244,7 +244,7 @@ optimize_system_ultra() {
     
     cat > /etc/sysctl.d/99-dnstt-ultra-v2.conf << 'EOF'
 # DNSTT ULTRA SPEED v2.0 - SSH OPTIMIZED
-# Created By BLACK KILLER
+# Created By MR BLACK KILLER
 # Optimized for 10-25 Mbps DNS tunnel speeds
 # SSH ONLY - Maximum Performance
 
@@ -330,7 +330,7 @@ EOF
     echo -e "${CYAN}[BONUS]${NC} Setting ultra-high file descriptors..."
     cat > /etc/security/limits.d/99-dnstt-ultra-v2.conf << 'EOF'
 # DNSTT ULTRA v2.0 - Maximum file descriptors
-# Created By BLACK KILLER
+# Created By MR BLACK KILLER
 * soft nofile 2097152
 * hard nofile 2097152
 root soft nofile 2097152
@@ -497,7 +497,7 @@ optimize_for_512() {
     echo -e "${CYAN}[G]${NC} Saving 512B tunnel sysctl config permanently..."
     cat > /etc/sysctl.d/99-dnstt-512b-tunnel.conf << 'SYSCTL'
 # DNSTT 512B MTU Tunnel Optimizations — High-Frequency Small-Packet Edition
-# Created By BLACK KILLER
+# Created By MR BLACK KILLER
 # Target: 2–4 Mbps through 512B MTU DNS tunnel (replaces 300 kbps default)
 
 # ── UDP socket buffers (8 MB cap, 2 MB guaranteed floor per socket) ──────────
@@ -590,7 +590,7 @@ optimize_ssh_server() {
     cat >> /etc/ssh/sshd_config << 'EOF'
 
 # DNSTT 512B MTU Edition — SSH Optimizations
-# Created By BLACK KILLER
+# Created By MR BLACK KILLER
 # END DNSTT marker: do not remove this line
 
 # ── Keepalive: keep the tunnel from timing out at DNS relay ──────────────────
@@ -1079,7 +1079,7 @@ create_service() {
 
     cat > /etc/systemd/system/dnstt.service << EOF
 [Unit]
-Description=DNSTT DNS Tunnel Server (512B High-Packet-Rate — BLACK KILLER)
+Description=DNSTT DNS Tunnel Server (512B High-Packet-Rate — MR BLACK KILLER)
 Documentation=https://www.bamsoftware.com/software/dnstt/
 After=network.target network-online.target
 Wants=network-online.target
@@ -1365,7 +1365,7 @@ setup_dnstt() {
     cat > "$INSTALL_DIR/connection_info.txt" << EOF
 ╔═══════════════════════════════════════════════════════╗
 ║      DNSTT ULTRA v2.0 - SSH OPTIMIZED EDITION        ║
-║              Created By BLACK KILLER               ║
+║           Created By MR BLACK KILLER              ║
 ╚═══════════════════════════════════════════════════════╝
 
 Generated: $(date)
@@ -1425,7 +1425,7 @@ Server: $LOG_DIR/dnstt-server.log
 Error:  $LOG_DIR/dnstt-error.log
 Main:   $LOG_DIR/dnstt.log
 
-Created By BLACK KILLER
+Created By MR BLACK KILLER
 EOF
     
     log_success "Info saved: $INSTALL_DIR/connection_info.txt"
@@ -1781,9 +1781,10 @@ total=$(( bytes + saved ))
 usage_gb=$(awk "BEGIN{printf \"%.2f\", $total/1073741824}")
 
 echo ""
-echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║         SSH TUNNEL MANAGER v8.0 ULTRA 👑             ║${NC}"
-echo -e "${CYAN}╠═══════════════════════════════════════════════════════╣${NC}"
+echo -e "${RED}╔═══════════════════════════════════════════════════════╗${NC}"
+echo -e "${RED}║  ☠  BLACK KILLER - SSH TUNNEL MANAGER v8.0 ULTRA ☠  ║${NC}"
+echo -e "${RED}║           Created By MR BLACK KILLER                 ║${NC}"
+echo -e "${RED}╠═══════════════════════════════════════════════════════╣${NC}"
 printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "👤 Username:" "$me"
 printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${YELLOW}%-32s${NC}${CYAN}║${NC}\n" "📅 Expires:" "$exp"
 
@@ -2129,7 +2130,7 @@ set_default_ssh_banner() {
 ║   ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝        ║
 ╠═══════════════════════════════════════════════════════╣
 ║         SSH TUNNEL MANAGER v8.0 ULTRA                ║
-║           CREATED BY BLACK KILLER                    ║
+║           CREATED BY MR BLACK KILLER                 ║
 ╠═══════════════════════════════════════════════════════╣
 ║  ⚠️   AUTHORIZED ACCESS ONLY                          ║
 ║  🔐  All sessions are monitored and logged            ║
@@ -3362,7 +3363,7 @@ main_menu() {
         echo -e "  ${RED}0)${NC} ⛔ Exit"
         echo ""
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${WHITE}Version: 8.0 ULTRA | ${RED}Created By BLACK KILLER${NC}"
+        echo -e "${WHITE}Version: 8.0 ULTRA | ${RED}Created By MR BLACK KILLER${NC}"
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         read -p "Choice: " choice
@@ -3396,21 +3397,21 @@ create_menu_command() {
     
     cat > /usr/local/bin/menu << EOF
 #!/bin/bash
-# DNSTT Menu - BLACK KILLER
+# DNSTT Menu - MR BLACK KILLER
 bash "$SCRIPT_PATH"
 EOF
     chmod +x /usr/local/bin/menu
     
     cat > /usr/local/bin/dnstt << EOF
 #!/bin/bash
-# DNSTT Command - BLACK KILLER
+# DNSTT Command - MR BLACK KILLER
 bash "$SCRIPT_PATH"
 EOF
     chmod +x /usr/local/bin/dnstt
     
     cat > /usr/local/bin/slowdns << EOF
 #!/bin/bash
-# SlowDNS Command - BLACK KILLER
+# SlowDNS Command - MR BLACK KILLER
 bash "$SCRIPT_PATH"
 EOF
     chmod +x /usr/local/bin/slowdns
