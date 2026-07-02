@@ -90,9 +90,11 @@ fun_bar() {
     # Callers must never interpolate user/DB content directly into this string.
     local cmd="$1"
     local label="${2:-PLEASE WAIT...}"
+    # Use unique tmpfile: PID + RANDOM avoids collisions on rapid back-to-back calls
+    local _done_flag="/tmp/fun_bar_${$}_${RANDOM}"
     (
         bash -c "$cmd" >/dev/null 2>&1
-        touch /tmp/fun_bar_done_$
+        touch "$_done_flag"
     ) &
     local bg_pid=$!
     tput civis 2>/dev/null
@@ -102,8 +104,8 @@ fun_bar() {
             echo -ne "${BRED}#${NC}"
             sleep 0.1
         done
-        if [[ -e /tmp/fun_bar_done_$$ ]]; then
-            rm -f /tmp/fun_bar_done_$$
+        if [[ -e "$_done_flag" ]]; then
+            rm -f "$_done_flag"
             break
         fi
         echo -e "${BYELLOW}]${NC}"
@@ -171,6 +173,14 @@ check_os() {
     fi
 }
 
+check_bash_version() {
+    if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
+        echo -e "${RED}ERROR: BASH 4.0+ REQUIRED (CURRENT: ${BASH_VERSION})${NC}"
+        echo -e "${YELLOW}PLEASE UPGRADE BASH: apt-get install -y bash${NC}"
+        exit 1
+    fi
+}
+
 #============================================================
 # LOGGING
 #============================================================
@@ -231,7 +241,10 @@ optimize_system_ultra() {
     echo -e "${GREEN}✓ SSH BULK TRANSFER OPTIMIZATIONS${NC}"; sleep 0.3
 
     echo -e "${CYAN}[5/12]${NC} CONNECTION TRACKING (8M)..."
-    sysctl -w net.netfilter.nf_conntrack_max=8000000 >/dev/null 2>&1 || true
+    modprobe nf_conntrack 2>/dev/null || true
+    # Try both sysctl paths — kernel 5.x+ uses net.netfilter, older use net.nf_conntrack
+    sysctl -w net.netfilter.nf_conntrack_max=8000000 >/dev/null 2>&1 || \
+        sysctl -w net.nf_conntrack_max=8000000 >/dev/null 2>&1 || true
     sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=432000 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ CONNECTION TRACKING: 8M${NC}"; sleep 0.3
 
@@ -380,14 +393,18 @@ install_dependencies() {
 
     if [[ -f /etc/debian_version ]]; then
         fun_bar "apt-get update -y" "UPDATING PACKAGE LIST"
-        fun_bar "apt-get install -y wget curl git gcc make iptables netfilter-persistent \
-            iptables-persistent ca-certificates dnsutils net-tools sysstat htop bc \
-            openssh-server screen" "INSTALLING PACKAGES"
+        # Install core packages; iptables-persistent may not exist on all versions — use || true
+        fun_bar "apt-get install -y wget curl git gcc make iptables \
+            ca-certificates dnsutils iproute2 net-tools sysstat htop bc \
+            openssh-server screen lsof" "INSTALLING PACKAGES"
+        apt-get install -y iptables-persistent 2>/dev/null || \
+            apt-get install -y netfilter-persistent 2>/dev/null || true
         systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
         systemctl start ssh 2>/dev/null || systemctl start sshd 2>/dev/null || true
     elif [[ -f /etc/redhat-release ]]; then
         fun_bar "yum install -y wget curl git gcc make iptables iptables-services \
-            ca-certificates bind-utils net-tools sysstat htop bc openssh-server screen" "INSTALLING PACKAGES"
+            ca-certificates bind-utils iproute net-tools sysstat htop bc openssh-server screen lsof" "INSTALLING PACKAGES"
+        systemctl enable sshd 2>/dev/null && systemctl start sshd 2>/dev/null || true
     fi
 
     log_success "DEPENDENCIES INSTALLED"
@@ -400,8 +417,11 @@ install_dependencies() {
 install_golang() {
     if command -v go &>/dev/null; then
         GO_VER=$(go version | awk '{print $3}' | sed 's/go//')
-        if [[ "$GO_VER" > "1.21" ]]; then
-            log_success "Go $GO_VER ALREADY INSTALLED"
+        # Compare versions numerically (major.minor.patch)
+        GO_MAJOR=$(echo "$GO_VER" | cut -d. -f1)
+        GO_MINOR=$(echo "$GO_VER" | cut -d. -f2)
+        if [[ "$GO_MAJOR" -gt 1 ]] || { [[ "$GO_MAJOR" -eq 1 ]] && [[ "$GO_MINOR" -ge 21 ]]; }; then
+            log_success "Go $GO_VER ALREADY INSTALLED — SKIPPING"
             return 0
         fi
     fi
@@ -518,9 +538,12 @@ configure_firewall() {
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
     modprobe nf_conntrack 2>/dev/null || true
-    iptables -F 2>/dev/null || true
+    iptables -F INPUT 2>/dev/null || true
+    iptables -F OUTPUT 2>/dev/null || true
+    iptables -F FORWARD 2>/dev/null || true
     iptables -t nat -F 2>/dev/null || true
     iptables -t mangle -F 2>/dev/null || true
+    # Delete non-built-in chains only (prevents "chain in use" errors)
     iptables -X 2>/dev/null || true
 
     iptables -P INPUT ACCEPT
@@ -542,6 +565,13 @@ configure_firewall() {
     iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     iptables -A FORWARD -o "$NET_IF" -j ACCEPT
     iptables -A FORWARD -i "$NET_IF" -j ACCEPT
+
+    # Apply ip6tables rules only if available (not all VPS providers support IPv6)
+    if command -v ip6tables &>/dev/null; then
+        ip6tables -I INPUT 1 -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
+        ip6tables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
+        ip6tables -t nat -I PREROUTING 1 -p udp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
+    fi
 
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
@@ -682,7 +712,13 @@ setup_dnstt() {
     read -rp "TUNNEL DOMAIN: " tunnel_domain
 
     if [[ -z "$tunnel_domain" ]]; then
-        base_domain=$(echo "$ns_domain" | awk -F. '{print $(NF-1)"."$NF}')
+        local dot_count
+        dot_count=$(echo "$ns_domain" | tr -cd '.' | wc -c)
+        if [[ "$dot_count" -ge 1 ]]; then
+            base_domain=$(echo "$ns_domain" | awk -F. '{print $(NF-1)"."$NF}')
+        else
+            base_domain="$ns_domain"
+        fi
         tunnel_domain="t.${base_domain}"
     fi
 
@@ -735,8 +771,12 @@ setup_dnstt() {
 
     [[ "$MTU" -le 512 ]] && optimize_for_512
 
-    SSH_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
-    SSH_PORT=${SSH_PORT:-22}
+    # Detect SSH port: try sshd_config first, then ss, default 22
+    SSH_PORT=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+    if [[ -z "$SSH_PORT" || ! "$SSH_PORT" =~ ^[0-9]+$ ]]; then
+        SSH_PORT=$(ss -tlnp 2>/dev/null | awk '/sshd/{print $4}' | grep -oP '(?<=:)[0-9]+$' | head -1)
+    fi
+    [[ -z "$SSH_PORT" || ! "$SSH_PORT" =~ ^[0-9]+$ ]] && SSH_PORT=22
     echo "$SSH_PORT" > "$INSTALL_DIR/ssh_port.txt"
 
     create_service "$tunnel_domain" "$MTU" "$SSH_PORT"
@@ -824,6 +864,11 @@ add_ssh_user() {
 
     read -rp "USERNAME: " username
     [[ -z "$username" ]] && { log_error "USERNAME REQUIRED"; press_enter; return; }
+    # Only allow safe alphanumeric + underscore/hyphen usernames (no spaces, no special chars)
+    if [[ ! "$username" =~ ^[a-zA-Z0-9_-]{2,32}$ ]]; then
+        log_error "INVALID USERNAME — USE 2-32 CHARS: LETTERS, NUMBERS, _ OR - ONLY"
+        press_enter; return
+    fi
 
     if id "$username" &>/dev/null; then
         log_error "USER ALREADY EXISTS"
@@ -2165,8 +2210,13 @@ check_for_updates() {
     latest_ver=$(curl -s --max-time 10 "$GITHUB_VER" 2>/dev/null | tr -d '[:space:]')
 
     if [[ -z "$latest_ver" ]]; then
-        # Fallback: read version from script header
-        latest_ver=$(curl -s --max-time 10 "$GITHUB_RAW" 2>/dev/null | grep "^SCRIPT_VERSION=" | head -1 | cut -d'"' -f2)
+        # Fallback: extract version from script header (robust grep)
+        latest_ver=$(curl -s --max-time 15 "$GITHUB_RAW" 2>/dev/null | grep -oP '^SCRIPT_VERSION="\K[^"]+' | head -1)
+    fi
+    # Validate version format (must be digits and dots only)
+    if [[ -n "$latest_ver" && ! "$latest_ver" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+        log_error "INVALID VERSION STRING RECEIVED: '$latest_ver' — ABORTING UPDATE"
+        press_enter; return
     fi
 
     if [[ -z "$latest_ver" ]]; then
@@ -2811,6 +2861,7 @@ _autostart_limiter() {
 [[ ! -f /usr/local/bin/menu ]] && [[ $EUID -eq 0 ]] && create_menu_command 2>/dev/null
 
 check_root
+check_bash_version
 check_os
 _autostart_limiter
 main_menu
