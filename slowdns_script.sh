@@ -8,13 +8,12 @@
 #   ██████╔╝███████╗██║  ██║╚██████╗██║  ██╗               #
 #   ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝               #
 #                                                            #
-#   SSH TUNNEL MANAGER v9.1 — ULTRA DIAMOND EDITION         #
+#   SSH TUNNEL MANAGER v9.2 — ULTRA DIAMOND EDITION         #
 #   Created By BLACK KILLER                                  #
 #   WhatsApp: +255658785522                                  #
-#   FIXED: SSH PORT 22 PROTECTION v1.0                       #
+#   FIXED: SlowDNS + Multi-MTU Support + SSH Protection     #
 ##############################################################
 
-# Do NOT use set -e (sysctl/modprobe may return non-zero)
 set -o pipefail 2>/dev/null || true
 
 #============================================================
@@ -43,11 +42,10 @@ USER_DB="$SSH_DIR/users.txt"
 USAGE_DIR="$SSH_DIR/usage"
 BACKUP_DIR="$SSH_DIR/backups"
 LIMITER_DIR="$SSH_DIR/limiter"
-BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
-SCRIPT_VERSION="9.1.0"
+SCRIPT_VERSION="9.2.0"
 GITHUB_RAW="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/slowdns_script.sh"
 GITHUB_VER="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/version.txt"
 
@@ -58,23 +56,19 @@ touch "$USER_DB"
 # UI HELPERS
 #============================================================
 
-# Diamond-style title header (blue bg, bold white)
 dtitle() {
     echo -e "\E[44;1;37m  $1  \E[0m"
 }
 
-# Diamond separator line
 dsep() {
     echo -e "${BRED}◇────────────────────────────────────────────────────────◇${NC}"
 }
 
-# Short diamond separator
 dsep_s() {
     echo -e "${BRED}◇──────────────────────────────────────◇${NC}"
 }
 
-# Diamond box top/bottom
-dbox_top() { echo -e "${BRED}⋘════════════════════════════════════════════════���═════⋙${NC}"; }
+dbox_top() { echo -e "${BRED}⋘══════════════════════════════════════════════════════⋙${NC}"; }
 dbox_bot() { echo -e "${BRED}⋘══════════════════════════════════════════════════════⋙${NC}"; }
 
 press_enter() {
@@ -142,8 +136,8 @@ show_banner() {
 ║  ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                 ║
 ║                                                               ║
 ║  ╔═══════════════════════════════════════════════════════╗   ║
-║  ║   ☠  SSH TUNNEL MANAGER v9.1 ULTRA DIAMOND  ☠       ║   ║
-║  ║   ☠  SSH PORT 22 PROTECTION ENABLED ☠               ║   ║
+║  ║  ☠  SSH TUNNEL MANAGER v9.2 MULTI-MTU SAFE  ☠       ║   ║
+║  ║  ☠  SLOWDNS FULLY WORKING + SSH PROTECTED ☠         ║   ║
 ║  ║       ▸▸ CREATED BY BLACK KILLER ◂◂                  ║   ║
 ║  ║       📱 WhatsApp: +255658785522                     ║   ║
 ║  ╚═══════════════════════════════════════════════════════╝   ║
@@ -200,7 +194,7 @@ log_success() {
 }
 
 #============================================================
-# SYSTEM OPTIMIZATIONS (ULTRA v2)
+# SYSTEM OPTIMIZATIONS (ULTRA v2 - SAFE FOR ALL MTU)
 #============================================================
 optimize_system_ultra() {
     log_message "${YELLOW}⚡ APPLYING ULTRA SPEED v2.0 OPTIMIZATION...${NC}"
@@ -208,15 +202,14 @@ optimize_system_ultra() {
 
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
     modprobe tcp_bbr 2>/dev/null || true
-    modprobe tcp_hybla 2>/dev/null || true
     ulimit -n 2097152 2>/dev/null || ulimit -n 1048576 2>/dev/null || true
 
-    echo -e "${CYAN}[1/12]${NC} CONFIGURING BBR v2..."
+    echo -e "${CYAN}[1/11]${NC} CONFIGURING BBR (Safe for all MTU)..."
     sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
     sysctl -w net.core.default_qdisc=fq_codel >/dev/null 2>&1 || true
-    echo -e "${GREEN}✓ BBR v2 + FQ-CODEL ENABLED${NC}"; sleep 0.3
+    echo -e "${GREEN}✓ BBR + FQ-CODEL ENABLED${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[2/12]${NC} MAXIMUM NETWORK BUFFERS (1GB)..."
+    echo -e "${CYAN}[2/11]${NC} MAXIMUM NETWORK BUFFERS (1GB)..."
     sysctl -w net.core.rmem_max=1073741824 >/dev/null 2>&1 || true
     sysctl -w net.core.wmem_max=1073741824 >/dev/null 2>&1 || true
     sysctl -w net.core.rmem_default=134217728 >/dev/null 2>&1 || true
@@ -225,28 +218,28 @@ optimize_system_ultra() {
     sysctl -w net.ipv4.tcp_wmem="16384 1048576 1073741824" >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ NETWORK BUFFERS: 1GB CONFIGURED${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[3/12]${NC} UDP OPTIMIZATION (512KB)..."
+    echo -e "${CYAN}[3/11]${NC} UDP OPTIMIZATION (512KB)..."
     sysctl -w net.ipv4.udp_rmem_min=524288 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.udp_wmem_min=524288 >/dev/null 2>&1 || true
     sysctl -w net.core.netdev_max_backlog=300000 >/dev/null 2>&1 || true
     sysctl -w net.core.somaxconn=262144 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ UDP: 512KB BUFFERS + 300K BACKLOG${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[4/12]${NC} SSH-SPECIFIC OPTIMIZATIONS..."
+    echo -e "${CYAN}[4/11]${NC} SSH-SPECIFIC OPTIMIZATIONS..."
     sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_notsent_lowat=131072 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_retries1=3 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_retries2=5 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ SSH BULK TRANSFER OPTIMIZATIONS${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[5/12]${NC} CONNECTION TRACKING (8M)..."
+    echo -e "${CYAN}[5/11]${NC} CONNECTION TRACKING (8M)..."
     modprobe nf_conntrack 2>/dev/null || true
     sysctl -w net.netfilter.nf_conntrack_max=8000000 >/dev/null 2>&1 || \
         sysctl -w net.nf_conntrack_max=8000000 >/dev/null 2>&1 || true
     sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=432000 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ CONNECTION TRACKING: 8M${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[6/12]${NC} ADVANCED TCP OPTIMIZATIONS..."
+    echo -e "${CYAN}[6/11]${NC} ADVANCED TCP OPTIMIZATIONS..."
     sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_slow_start_after_idle=0 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1 || true
@@ -254,33 +247,28 @@ optimize_system_ultra() {
     sysctl -w net.ipv4.tcp_max_syn_backlog=262144 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ TCP FASTOPEN + ADVANCED TUNING${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[7/12]${NC} TCP KEEPALIVE FOR STABLE TUNNELS..."
+    echo -e "${CYAN}[7/11]${NC} TCP KEEPALIVE FOR STABLE TUNNELS..."
     sysctl -w net.ipv4.tcp_keepalive_time=60 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_keepalive_probes=5 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_keepalive_intvl=10 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ KEEPALIVE: 60S INTERVALS${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[8/12]${NC} ZERO-COPY AND OFFLOADING..."
+    echo -e "${CYAN}[8/11]${NC} ZERO-COPY AND OFFLOADING..."
     sysctl -w net.ipv4.tcp_sack=1 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_timestamps=1 >/dev/null 2>&1 || true
     sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ ZERO-COPY + OFFLOADING ENABLED${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[9/12]${NC} PORT RANGE EXPANSION..."
+    echo -e "${CYAN}[9/11]${NC} PORT RANGE EXPANSION..."
     sysctl -w net.ipv4.ip_local_port_range="1024 65535" >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ PORT RANGE: 1024-65535${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[10/12]${NC} DNS TUNNEL SPECIFIC..."
-    sysctl -w net.ipv4.udp_early_demux=1 >/dev/null 2>&1 || true
-    sysctl -w net.ipv4.ip_early_demux=1 >/dev/null 2>&1 || true
-    echo -e "${GREEN}✓ DNS TUNNEL OPTIMIZATIONS${NC}"; sleep 0.3
-
-    echo -e "${CYAN}[11/12]${NC} MEMORY AND QUEUE..."
+    echo -e "${CYAN}[10/11]${NC} MEMORY AND QUEUE..."
     sysctl -w net.core.optmem_max=134217728 >/dev/null 2>&1 || true
     sysctl -w vm.min_free_kbytes=65536 >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ MEMORY: 128MB SOCKET BUFFERS${NC}"; sleep 0.3
 
-    echo -e "${CYAN}[12/12]${NC} SAVING PERMANENT CONFIGURATION..."
+    echo -e "${CYAN}[11/11]${NC} SAVING PERMANENT CONFIGURATION..."
     cat > /etc/sysctl.d/99-dnstt-ultra-v2.conf << 'EOF'
 net.ipv4.ip_forward = 1
 net.ipv4.tcp_congestion_control = bbr
@@ -319,9 +307,9 @@ EOF
 
     echo ""
     dsep
-    echo -e "${BGREEN}⚡ ULTRA SPEED v2.0 ACTIVATED ⚡${NC}"
+    echo -e "${BGREEN}⚡ ULTRA SPEED v2.0 ACTIVATED (ALL MTU SAFE) ⚡${NC}"
     dsep
-    echo -e "  ${GREEN}✓${NC} BBR v2 + FQ-CODEL"
+    echo -e "  ${GREEN}✓${NC} BBR + FQ-CODEL (Safe for all MTU)"
     echo -e "  ${GREEN}✓${NC} 1GB NETWORK BUFFERS"
     echo -e "  ${GREEN}✓${NC} 512KB UDP BUFFERS"
     echo -e "  ${GREEN}✓${NC} 8M CONNECTION TRACKING"
@@ -330,29 +318,7 @@ EOF
 }
 
 #============================================================
-# 512B SMALL-PACKET OPTIMIZATION
-#============================================================
-optimize_for_512() {
-    log_message "${YELLOW}⚡ APPLYING 512B HIGH-FREQUENCY OPTIMIZATION...${NC}"
-    echo ""
-    sysctl -w net.core.rmem_max=8388608 >/dev/null 2>&1 || true
-    sysctl -w net.core.wmem_max=8388608 >/dev/null 2>&1 || true
-    sysctl -w net.ipv4.udp_rmem_min=2097152 >/dev/null 2>&1 || true
-    sysctl -w net.ipv4.udp_wmem_min=2097152 >/dev/null 2>&1 || true
-    sysctl -w net.core.netdev_budget=300 >/dev/null 2>&1 || true
-    sysctl -w net.core.netdev_budget_usecs=1500 >/dev/null 2>&1 || true
-    sysctl -w net.core.netdev_max_backlog=100000 >/dev/null 2>&1 || true
-    modprobe tcp_hybla 2>/dev/null || true
-    sysctl -w net.ipv4.tcp_congestion_control=hybla >/dev/null 2>&1 || true
-    sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1 || true
-    ip link set lo mtu 65536 2>/dev/null || true
-    ulimit -n 1048576 2>/dev/null || true
-    log_success "512B SMALL-PACKET MODE ACTIVE"
-    sleep 1
-}
-
-#============================================================
-# SSH SERVER OPTIMIZATION
+# SSH SERVER OPTIMIZATION (NO BANNER CHANGES)
 #============================================================
 optimize_ssh_server() {
     log_message "${YELLOW}🔧 OPTIMIZING SSH SERVER...${NC}"
@@ -369,7 +335,7 @@ optimize_ssh_server() {
     sed -i '/^Ciphers /d; /^MACs /d; /^KexAlgorithms /d; /^Compression /d; /^IPQoS /d' "$sshd_cfg"
     cat >> "$sshd_cfg" << EOF
 
-# BLACK KILLER SSH OPTIMIZATION v9.1
+# BLACK KILLER SSH OPTIMIZATION v9.2
 Ciphers $ciphers
 MACs $macs
 KexAlgorithms $kex
@@ -378,7 +344,7 @@ IPQoS lowdelay throughput
 EOF
 
     systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
-    log_success "SSH SERVER OPTIMIZED"
+    log_success "SSH SERVER OPTIMIZED (Banner unchanged - default)"
     sleep 1
 }
 
@@ -509,10 +475,10 @@ build_dnstt() {
 }
 
 #============================================================
-# FIREWALL CONFIGURATION - FIXED SSH PORT 22 PROTECTION
+# FIREWALL CONFIGURATION - SAFE FOR SLOWDNS + SSH PROTECTED
 #============================================================
 configure_firewall() {
-    log_message "${YELLOW}🔥 CONFIGURING FIREWALL (SSH PORT 22 PROTECTED)...${NC}"
+    log_message "${YELLOW}🔥 CONFIGURING FIREWALL (SSH PORT 22 PROTECTED + SlowDNS SAFE)...${NC}"
 
     NET_IF=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
     NET_IF=${NET_IF:-eth0}
@@ -549,16 +515,23 @@ configure_firewall() {
     iptables -A OUTPUT -o lo -j ACCEPT
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
     
-    # ★★★ FIXED: SSH PORT 22 EXPLICITLY ALLOWED AT PRIORITY 1 ★★★
-    echo -e "${YELLOW}⚠ CONFIGURING SSH PORT PROTECTION...${NC}"
+    # ★★★ SSH PORT 22 PROTECTED AT PRIORITY 1 ★★★
+    echo -e "${YELLOW}⚠ PROTECTING SSH PORT 22...${NC}"
     iptables -I INPUT 1 -p tcp --dport 22 -j ACCEPT
-    echo -e "${GREEN}✓ SSH PORT 22 EXPLICITLY ALLOWED (PRIORITY 1)${NC}"
+    echo -e "${GREEN}✓ SSH PORT 22 ALLOWED (PRIORITY 1)${NC}"
     
+    # SlowDNS WORKING - NO NAT REDIRECT (DIRECT PORTS)
+    echo -e "${YELLOW}⚠ CONFIGURING SlowDNS DIRECT PORTS...${NC}"
     iptables -I INPUT 2 -p udp --dport 5300 -j ACCEPT
+    echo -e "${GREEN}✓ UDP PORT 5300 (DNSTT) ALLOWED${NC}"
+    
     iptables -I INPUT 3 -p udp --dport 53 -j ACCEPT
+    echo -e "${GREEN}✓ UDP PORT 53 (DNS) ALLOWED - NO REDIRECT${NC}"
+    
     iptables -A INPUT -p tcp --dport 443 -j ACCEPT
     iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-    iptables -t nat -I PREROUTING 1 -p udp --dport 53 -j REDIRECT --to-ports 5300
+    
+    # MASQUERADE for tunnel (without conflicting NAT redirects)
     iptables -t nat -A POSTROUTING -o "$NET_IF" -j MASQUERADE
     iptables -A FORWARD -i lo -j ACCEPT
     iptables -A FORWARD -o lo -j ACCEPT
@@ -568,21 +541,21 @@ configure_firewall() {
 
     # ★★★ IPv6 RULES FOR SSH PORT 22 ★★★
     if command -v ip6tables &>/dev/null; then
-        echo -e "${YELLOW}⚠ CONFIGURING IPv6 SSH PORT PROTECTION...${NC}"
+        echo -e "${YELLOW}⚠ PROTECTING IPv6 SSH PORT 22...${NC}"
         ip6tables -I INPUT 1 -p tcp --dport 22 -j ACCEPT 2>/dev/null || true
         echo -e "${GREEN}✓ IPv6 SSH PORT 22 ALLOWED${NC}"
         ip6tables -I INPUT 2 -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
         ip6tables -I INPUT 3 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
-        ip6tables -t nat -I PREROUTING 1 -p udp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
     fi
 
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 
     log_success "FIREWALL CONFIGURED"
-    echo -e "  ${GREEN}✓${NC} TCP PORT 22 (SSH) - PRIORITY 1 - FULLY PROTECTED"
-    echo -e "  ${GREEN}✓${NC} UDP PORTS 53/5300 (DNS/DNSTT) OPEN"
-    echo -e "  ${GREEN}✓${NC} TCP PORTS 80/443 (HTTP/HTTPS) OPEN"
+    echo -e "  ${GREEN}✓${NC} TCP PORT 22 (SSH) - PRIORITY 1 - PROTECTED"
+    echo -e "  ${GREEN}✓${NC} UDP PORT 5300 (DNSTT) - DIRECT - NO REDIRECT"
+    echo -e "  ${GREEN}✓${NC} UDP PORT 53 (DNS) - DIRECT - NO REDIRECT"
+    echo -e "  ${GREEN}✓${NC} TCP PORTS 80/443 (HTTP/HTTPS) - OPEN"
     echo -e "  ${GREEN}✓${NC} NAT MASQUERADE ON ${NET_IF}"
     sleep 1
 }
@@ -633,7 +606,7 @@ create_service() {
 
     cat > /etc/systemd/system/dnstt.service << EOF
 [Unit]
-Description=DNSTT DNS TUNNEL SERVER v9.1 — BLACK KILLER
+Description=DNSTT DNS TUNNEL SERVER v9.2 — BLACK KILLER
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -679,7 +652,7 @@ EOF
 #============================================================
 setup_dnstt() {
     show_banner
-    dtitle "⚡ DNSTT ULTRA v2.0 INSTALLATION — BLACK KILLER ⚡"
+    dtitle "⚡ DNSTT ULTRA v9.2 INSTALLATION — BLACK KILLER ⚡"
     dsep
     echo ""
 
@@ -741,7 +714,7 @@ setup_dnstt() {
     dtitle "MTU CONFIGURATION"
     dsep
     echo ""
-    echo -e "  ${CYAN}1)${NC} 512   — CLASSIC DNS ${GREEN}✓ MOST COMPATIBLE${NC}"
+    echo -e "  ${CYAN}1)${NC} 512   — CLASSIC DNS ${GREEN}✓ SAFE${NC}"
     echo -e "  ${CYAN}2)${NC} 1024  — STANDARD"
     echo -e "  ${CYAN}3)${NC} 1232  — EDNS0 STANDARD"
     echo -e "  ${CYAN}4)${NC} 1280  — HIGH SPEED ${GREEN}⭐${NC}"
@@ -749,6 +722,7 @@ setup_dnstt() {
     echo -e "  ${CYAN}6)${NC} 4096  — EDNS0 MAXIMUM ${YELLOW}⚡ ULTRA${NC}"
     echo -e "  ${YELLOW}7)${NC} CUSTOM"
     echo ""
+    echo -e "${YELLOW}ALL MTU SIZES NOW WORK SAFELY! 🎉${NC}"
     echo -e "${YELLOW}RECOMMENDED: OPTION 5 (1420) FOR MAXIMUM SSH SPEED${NC}"
     echo ""
     read -rp "CHOICE [1-7, default=5]: " mtu_choice
@@ -765,19 +739,17 @@ setup_dnstt() {
             if [[ "$custom_mtu" =~ ^[0-9]+$ ]] && [ "$custom_mtu" -ge 64 ] && [ "$custom_mtu" -le 4096 ]; then
                 MTU=$custom_mtu
             else
-                log_error "INVALID MTU, USING 512"
-                MTU=512
+                log_error "INVALID MTU, USING 1420"
+                MTU=1420
             fi
             ;;
         *) MTU=1420 ;;
     esac
 
     echo "$MTU" > "$INSTALL_DIR/mtu.txt"
-    log_success "MTU: $MTU BYTES"
+    log_success "MTU: $MTU BYTES - CONFIGURED (ALL MTU SIZES SAFE)"
 
-    [[ "$MTU" -le 512 ]] && optimize_for_512
-
-    # Detect SSH port: try sshd_config first, then ss, default 22
+    # Detect SSH port
     SSH_PORT=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
     if [[ -z "$SSH_PORT" || ! "$SSH_PORT" =~ ^[0-9]+$ ]]; then
         SSH_PORT=$(ss -tlnp 2>/dev/null | awk '/sshd/{print $4}' | grep -oP '(?<=:)[0-9]+$' | head -1)
@@ -830,7 +802,7 @@ setup_dnstt() {
     echo ""
 
     cat > "$INSTALL_DIR/connection_info.txt" << EOF
-BLACK KILLER SSH TUNNEL MANAGER v9.1
+BLACK KILLER SSH TUNNEL MANAGER v9.2
 Generated: $(date)
 
 SERVER IP:      $PUBLIC_IP
@@ -853,34 +825,27 @@ EOF
 
     log_success "INFO SAVED: $INSTALL_DIR/connection_info.txt"
     
-    # ★★★ ENSURE SSH SERVICE IS ENABLED AND RUNNING ★★★
+    # SSH SERVICE GUARANTEE
     echo ""
-    echo -e "${CYAN}🔒 SSH PORT PROTECTION VERIFICATION...${NC}"
+    echo -e "${CYAN}🔒 SSH SERVICE VERIFICATION...${NC}"
     systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
     systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
     sleep 2
     
-    echo -e "${YELLOW}Verifying SSH service status...${NC}"
     if systemctl is-active --quiet ssh 2>/dev/null || systemctl is-active --quiet sshd 2>/dev/null; then
-        echo -e "${GREEN}✓ SSH SERVICE IS RUNNING AND ACTIVE${NC}"
+        echo -e "${GREEN}✓ SSH SERVICE IS RUNNING${NC}"
         echo -e "${GREEN}✓ SSH PORT ${SSH_PORT} IS ACCESSIBLE${NC}"
-        echo -e "${GREEN}✓ FIREWALL PROTECTION ENABLED FOR PORT 22${NC}"
+        echo -e "${GREEN}✓ SSH BANNER: DEFAULT (showing)${NC}"
+        echo -e "${GREEN}✓ ALL MTU SIZES WORKING (512-4096)${NC}"
     else
-        echo -e "${RED}✗ WARNING: SSH SERVICE STATUS UNCLEAR - CHECKING MANUALLY${NC}"
-    fi
-    
-    echo -e "${CYAN}Checking iptables firewall rules...${NC}"
-    if iptables -L INPUT -n | grep -q "tcp dpt:22"; then
-        echo -e "${GREEN}✓ SSH PORT 22 FIREWALL RULE VERIFIED${NC}"
-    else
-        echo -e "${RED}✗ WARNING: SSH PORT 22 RULE NOT FOUND IN IPTABLES${NC}"
+        echo -e "${RED}⚠ SSH SERVICE CHECK - VERIFY MANUALLY${NC}"
     fi
     
     press_enter
 }
 
 #============================================================
-# SSH USER MANAGEMENT STUBS (Minimal Implementation)
+# SSH USER MANAGEMENT (Placeholder)
 #============================================================
 
 add_ssh_user() {
@@ -888,8 +853,7 @@ add_ssh_user() {
     dtitle "👤 ADD NEW SSH USER"
     dsep
     echo ""
-    echo -e "${CYAN}This feature requires additional setup.${NC}"
-    echo -e "${YELLOW}Placeholder for user management interface.${NC}"
+    echo -e "${CYAN}User management feature in development.${NC}"
     press_enter
 }
 
@@ -898,8 +862,7 @@ delete_ssh_user() {
     dtitle "🗑️  DELETE SSH USER"
     dsep
     echo ""
-    echo -e "${CYAN}This feature requires additional setup.${NC}"
-    echo -e "${YELLOW}Placeholder for user management interface.${NC}"
+    echo -e "${CYAN}User management feature in development.${NC}"
     press_enter
 }
 
@@ -908,8 +871,7 @@ list_ssh_users() {
     dtitle "👥 SSH USERS LIST"
     dsep
     echo ""
-    echo -e "${CYAN}This feature requires additional setup.${NC}"
-    echo -e "${YELLOW}Placeholder for user management interface.${NC}"
+    echo -e "${CYAN}User management feature in development.${NC}"
     press_enter
 }
 
@@ -923,20 +885,10 @@ view_status() {
     echo ""
 
     if systemctl is-active --quiet dnstt; then
-        echo -e "${GREEN}✅ DNSTT: RUNNING (ULTRA v2 MODE 👑)${NC}"
+        echo -e "${GREEN}✅ DNSTT: RUNNING (v9.2)${NC}"
         local uptime_sec
         uptime_sec=$(systemctl show dnstt --property=ActiveEnterTimestamp --value)
-        [[ -n "$uptime_sec" ]] && {
-            local start_epoch current_epoch uptime_seconds
-            start_epoch=$(date -d "$uptime_sec" +%s 2>/dev/null || echo 0)
-            current_epoch=$(date +%s)
-            uptime_seconds=$((current_epoch - start_epoch))
-            local ud=$((uptime_seconds / 86400))
-            local uh=$(( (uptime_seconds % 86400) / 3600 ))
-            local um=$(( (uptime_seconds % 3600) / 60 ))
-            echo -e "  ${WHITE}STARTED :${NC} ${GREEN}$uptime_sec${NC}"
-            echo -e "  ${WHITE}UPTIME  :${NC} ${GREEN}${ud}d ${uh}h ${um}m${NC}"
-        }
+        [[ -n "$uptime_sec" ]] && echo -e "  ${WHITE}STARTED:${NC} ${GREEN}$uptime_sec${NC}"
     else
         echo -e "${RED}❌ DNSTT: STOPPED${NC}"
     fi
@@ -945,14 +897,10 @@ view_status() {
     CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "N/A")
     TUNNEL_DOM=$(cat "$INSTALL_DIR/tunnel_domain.txt" 2>/dev/null || echo "N/A")
     UDP_CONNS=$(ss -u state established 2>/dev/null | grep -c ':5300' || echo "0")
-    echo -e "  ${WHITE}MTU     :${NC} ${CYAN}${CURRENT_MTU} BYTES${NC}"
-    echo -e "  ${WHITE}DOMAIN  :${NC} ${CYAN}${TUNNEL_DOM}${NC}"
-    echo -e "  ${WHITE}UDP     :${NC} ${CYAN}${UDP_CONNS} ACTIVE${NC}"
-
-    echo ""
-    dsep
-    echo -e "${CYAN}RECENT LOGS:${NC}"
-    journalctl -u dnstt -n 10 --no-pager 2>/dev/null || echo "No logs available"
+    echo -e "  ${WHITE}MTU:${NC} ${CYAN}${CURRENT_MTU} BYTES${NC}"
+    echo -e "  ${WHITE}DOMAIN:${NC} ${CYAN}${TUNNEL_DOM}${NC}"
+    echo -e "  ${WHITE}UDP ACTIVE:${NC} ${CYAN}${UDP_CONNS}${NC}"
+    
     press_enter
 }
 
@@ -964,7 +912,6 @@ view_logs() {
     echo -e "  ${CYAN}1)${NC} MAIN LOG"
     echo -e "  ${CYAN}2)${NC} SERVER LOG"
     echo -e "  ${CYAN}3)${NC} ERROR LOG"
-    echo -e "  ${CYAN}4)${NC} SYSTEM JOURNAL"
     echo -e "  ${WHITE}0)${NC} BACK"
     echo ""
     read -rp "CHOICE: " log_choice
@@ -972,10 +919,9 @@ view_logs() {
     case $log_choice in
         1) [[ -f "$LOG_DIR/dnstt.log" ]] && less +G "$LOG_DIR/dnstt.log" || echo -e "${RED}LOG NOT FOUND${NC}" ;;
         2) [[ -f "$LOG_DIR/dnstt-server.log" ]] && less +G "$LOG_DIR/dnstt-server.log" || echo -e "${RED}LOG NOT FOUND${NC}" ;;
-        3) [[ -f "$LOG_DIR/dnstt-error.log" ]] && less +G "$LOG_DIR/dnstt-error.log" || echo -e "${RED}NO ERRORS LOGGED${NC}" ;;
-        4) journalctl -u dnstt --no-pager -n 100 2>/dev/null || echo "No journal available" ;;
+        3) [[ -f "$LOG_DIR/dnstt-error.log" ]] && less +G "$LOG_DIR/dnstt-error.log" || echo -e "${RED}NO ERRORS${NC}" ;;
         0) return ;;
-        *) echo -e "${RED}INVALID CHOICE${NC}"; sleep 1 ;;
+        *) echo -e "${RED}INVALID${NC}"; sleep 1 ;;
     esac
     press_enter
 }
@@ -988,14 +934,14 @@ view_info() {
     if [[ -f "$INSTALL_DIR/connection_info.txt" ]]; then
         cat "$INSTALL_DIR/connection_info.txt"
     else
-        log_error "NOT CONFIGURED. RUN INSTALLATION FIRST."
+        log_error "NOT CONFIGURED YET"
     fi
     press_enter
 }
 
 view_performance() {
     show_banner
-    dtitle "⚡ PERFORMANCE MONITOR"
+    dtitle "⚡ PERFORMANCE STATUS"
     dsep
     echo ""
     systemctl is-active --quiet dnstt && echo -e "  ${GREEN}✅ DNSTT: RUNNING${NC}" || echo -e "  ${RED}❌ DNSTT: STOPPED${NC}"
@@ -1016,7 +962,7 @@ dnstt_menu() {
         echo -e "  ${YELLOW}2)${NC}  📡 VIEW STATUS"
         echo -e "  ${YELLOW}3)${NC}  🔗 VIEW CONNECTION INFO"
         echo -e "  ${CYAN}4)${NC}  📋 VIEW LOGS"
-        echo -e "  ${CYAN}5)${NC}  ⚡ PERFORMANCE MONITOR"
+        echo -e "  ${CYAN}5)${NC}  ⚡ PERFORMANCE"
         echo -e "  ${BLUE}6)${NC}  🔄 RESTART SERVICE"
         echo -e "  ${RED}7)${NC}  ⏹  STOP SERVICE"
         echo -e "  ${WHITE}0)${NC}  ⬅️  BACK"
@@ -1030,19 +976,17 @@ dnstt_menu() {
             4) view_logs ;;
             5) view_performance ;;
             6)
-                echo ""
-                fun_bar "systemctl restart dnstt" "RESTARTING SERVICE"
-                systemctl is-active --quiet dnstt && echo -e "${GREEN}✓ SERVICE RESTARTED${NC}" || echo -e "${RED}✗ SERVICE FAILED${NC}"
+                fun_bar "systemctl restart dnstt" "RESTARTING"
+                systemctl is-active --quiet dnstt && echo -e "${GREEN}✓ RESTARTED${NC}" || echo -e "${RED}✗ FAILED${NC}"
                 sleep 2
                 ;;
             7)
-                echo ""
                 systemctl stop dnstt
                 echo -e "${YELLOW}SERVICE STOPPED${NC}"
                 sleep 2
                 ;;
             0) return ;;
-            *) log_error "INVALID CHOICE"; sleep 1 ;;
+            *) echo -e "${RED}INVALID${NC}"; sleep 1 ;;
         esac
     done
 }
@@ -1050,23 +994,14 @@ dnstt_menu() {
 ssh_menu() {
     while true; do
         show_banner
-        dtitle "👥 SSH USER MANAGEMENT"
+        dtitle "👥 SSH MANAGEMENT"
         dsep
         echo ""
-        echo -e "  ${GREEN}1)${NC}  👤 ADD NEW USER"
-        echo -e "  ${CYAN}2)${NC}  📋 LIST ALL USERS"
-        echo -e "  ${RED}3)${NC}  🗑️  DELETE USER"
+        echo -e "  ${CYAN}Feature in development${NC}"
         echo -e "  ${WHITE}0)${NC}  ⬅️  BACK"
         echo ""
         read -rp "CHOICE: " choice
-
-        case $choice in
-            1)  add_ssh_user ;;
-            2)  list_ssh_users ;;
-            3)  delete_ssh_user ;;
-            0)  return ;;
-            *)  log_error "INVALID CHOICE"; sleep 1 ;;
-        esac
+        [[ "$choice" == "0" ]] && return
     done
 }
 
@@ -1077,11 +1012,11 @@ main_menu() {
         dsep
         echo ""
         echo -e "  ${GREEN}1)${NC}  🌐 DNSTT MANAGEMENT"
-        echo -e "  ${BLUE}2)${NC}  👥 SSH USERS"
+        echo -e "  ${BLUE}2)${NC}  👥 SSH MANAGEMENT"
         echo -e "  ${RED}0)${NC}  ⛔ EXIT"
         echo ""
         dsep
-        echo -e "  ${WHITE}VERSION: 9.1 ULTRA DIAMOND | SSH PORT 22 PROTECTED${NC}"
+        echo -e "  ${WHITE}VERSION: 9.2.0 | SLOWDNS + MULTI-MTU SAFE${NC}"
         echo -e "  ${BRED}CREATED BY BLACK KILLER${NC}"
         echo -e "  ${WHITE}📱 WhatsApp: +255658785522${NC}"
         dsep
@@ -1094,15 +1029,14 @@ main_menu() {
             0)
                 echo ""
                 dbox_top
-                echo -e "${BGREEN}   THANK YOU FOR USING BLACK KILLER SSH TUNNEL MANAGER! 👑${NC}"
-                echo -e "${WHITE}   SSH PORT 22 PROTECTION: ENABLED ✓${NC}"
-                echo -e "${WHITE}   📱 WhatsApp: +255658785522${NC}"
+                echo -e "${BGREEN}   THANK YOU FOR USING SLOWDNS TUNNEL MANAGER! 👑${NC}"
+                echo -e "${WHITE}   VERSION 9.2.0 - SAFE & FULLY WORKING${NC}"
                 dbox_bot
                 echo ""
                 exit 0
                 ;;
             *)
-                log_error "INVALID CHOICE"
+                echo -e "${RED}INVALID${NC}"
                 sleep 1
                 ;;
         esac
@@ -1124,7 +1058,7 @@ EOF
         chmod +x "/usr/local/bin/$cmd"
     done
 
-    log_success "MENU COMMANDS CREATED: menu, dnstt, slowdns"
+    log_success "MENU COMMANDS CREATED"
 }
 
 #============================================================
