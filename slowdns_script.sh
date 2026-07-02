@@ -1,18 +1,24 @@
 #!/bin/bash
 
-##############################################
-# DNSTT ULTRA SPEED - SSH OPTIMIZED EDITION
-# Created By MR BLACK KILLER
-# Version: 8.0.0 - Maximum Speed SSH
-# Optimized for 10-25 Mbps speeds
-# V2Ray removed - Pure SSH performance
-##############################################
+##############################################################
+#   ██████╗ ██╗      █████╗  ██████╗██╗  ██╗               #
+#   ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝               #
+#   ██████╔╝██║     ███████║██║     █████╔╝                 #
+#   ██╔══██╗██║     ██╔══██║██║     ██╔═██╗                 #
+#   ██████╔╝███████╗██║  ██║╚██████╗██║  ██╗               #
+#   ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝               #
+#                                                            #
+#   SSH TUNNEL MANAGER v9.0 — ULTRA DIAMOND EDITION         #
+#   Created By BLACK KILLER                                  #
+#   WhatsApp: +255658785522                                  #
+##############################################################
 
-# Do NOT use set -e: sysctl/modprobe return non-zero on unsupported kernels
-# which would abort the entire script. All critical paths handle errors explicitly.
+# Do NOT use set -e (sysctl/modprobe may return non-zero)
 set -o pipefail 2>/dev/null || true
 
-# Colors
+#============================================================
+# COLORS
+#============================================================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -21,29 +27,100 @@ PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
 WHITE='\033[1;37m'
 NC='\033[0m'
+BOLD='\033[1m'
+BRED='\033[1;31m'
+BGREEN='\033[1;32m'
+BYELLOW='\033[1;33m'
+BCYAN='\033[1;36m'
 
-# Paths
+#============================================================
+# PATHS & VERSION
+#============================================================
 INSTALL_DIR="/etc/dnstt"
 SSH_DIR="/etc/slowdns"
 USER_DB="$SSH_DIR/users.txt"
 USAGE_DIR="$SSH_DIR/usage"
 BACKUP_DIR="$SSH_DIR/backups"
+LIMITER_DIR="$SSH_DIR/limiter"
 BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
+SCRIPT_VERSION="9.0.0"
+GITHUB_RAW="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/slowdns_script.sh"
+GITHUB_VER="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/version.txt"
 
-# Create directories
-mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR" "$USAGE_DIR" "$BACKUP_DIR"
+mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR" "$USAGE_DIR" "$BACKUP_DIR" "$LIMITER_DIR"
 touch "$USER_DB"
 
-#============================================
-# BANNER
-#============================================
+#============================================================
+# UI HELPERS
+#============================================================
 
+# Diamond-style title header (blue bg, bold white)
+dtitle() {
+    echo -e "\E[44;1;37m  $1  \E[0m"
+}
+
+# Diamond separator line
+dsep() {
+    echo -e "${BRED}◇────────────────────────────────────────────────────────◇${NC}"
+}
+
+# Short diamond separator
+dsep_s() {
+    echo -e "${BRED}◇──────────────────────────────────────◇${NC}"
+}
+
+# Diamond box top/bottom
+dbox_top() { echo -e "${BRED}⋘═══════════════════════════════════════════════════════════⋙${NC}"; }
+dbox_bot() { echo -e "${BRED}⋘═══════════════════════════════════════════════════════════⋙${NC}"; }
+
+press_enter() {
+    echo ""
+    echo -e "${BRED}  ►► PRESS ENTER TO CONTINUE ◄◄${NC}"
+    read -r
+}
+
+#============================================================
+# FUN_BAR — PROGRESS ANIMATION
+#============================================================
+fun_bar() {
+    local cmd="$1"
+    local label="${2:-PLEASE WAIT...}"
+    (
+        eval "$cmd" >/dev/null 2>&1
+        touch /tmp/fun_bar_done_$$
+    ) &
+    local bg_pid=$!
+    tput civis 2>/dev/null
+    echo -ne "  ${BYELLOW}◇ ${label} ${WHITE}- ${BYELLOW}[${NC}"
+    while true; do
+        for ((i=0; i<18; i++)); do
+            echo -ne "${BRED}#${NC}"
+            sleep 0.1
+        done
+        if [[ -e /tmp/fun_bar_done_$$ ]]; then
+            rm -f /tmp/fun_bar_done_$$
+            break
+        fi
+        echo -e "${BYELLOW}]${NC}"
+        sleep 0.5
+        tput cuu1 2>/dev/null
+        tput dl1 2>/dev/null
+        echo -ne "  ${BYELLOW}◇ ${label} ${WHITE}- ${BYELLOW}[${NC}"
+    done
+    echo -e "${BYELLOW}]${WHITE} -${BGREEN} OK!${NC}"
+    tput cnorm 2>/dev/null
+    wait $bg_pid 2>/dev/null
+}
+
+#============================================================
+# BANNER
+#============================================================
 show_banner() {
     clear
-    echo -e "${RED}"
+    echo -e "${BRED}"
     cat << "EOF"
 ╔═══════════════════════════════════════════════════════════════╗
 ║▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓║
@@ -63,9 +140,9 @@ show_banner() {
 ║  ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝                 ║
 ║                                                               ║
 ║  ╔═══════════════════════════════════════════════════════╗   ║
-║  ║     ☠  SSH TUNNEL MANAGER v8.0 ULTRA  ☠             ║   ║
-║  ║         ▸▸ CREATED BY BLACK KILLER ◂◂               ║   ║
-║  ║         Maximum Speed Edition • 10-25 Mbps           ║   ║
+║  ║   ☠  SSH TUNNEL MANAGER v9.0 ULTRA DIAMOND  ☠       ║   ║
+║  ║       ▸▸ CREATED BY BLACK KILLER ◂◂                  ║   ║
+║  ║       📱 WhatsApp: +255658785522                     ║   ║
 ║  ╚═══════════════════════════════════════════════════════╝   ║
 ║                                                               ║
 ║▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓║
@@ -74,657 +151,260 @@ EOF
     echo -e "${NC}"
 }
 
-press_enter() {
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-#============================================
+#============================================================
 # SYSTEM CHECKS
-#============================================
-
+#============================================================
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}ERROR: This script must be run as root${NC}"
-        echo -e "${YELLOW}Please run: sudo bash $0${NC}"
+        echo -e "${RED}ERROR: THIS SCRIPT MUST BE RUN AS ROOT${NC}"
+        echo -e "${YELLOW}PLEASE RUN: sudo bash $0${NC}"
         exit 1
     fi
 }
 
 check_os() {
     if [[ ! -f /etc/debian_version ]] && [[ ! -f /etc/redhat-release ]]; then
-        echo -e "${RED}ERROR: This script supports Debian/Ubuntu/CentOS only${NC}"
+        echo -e "${RED}ERROR: SUPPORTS DEBIAN/UBUNTU/CENTOS ONLY${NC}"
         exit 1
     fi
 }
 
-#============================================
+#============================================================
 # LOGGING
-#============================================
-
+#============================================================
 log_message() {
-    local message="$1"
-    echo -e "${CYAN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $message"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $message" >> "$LOG_DIR/dnstt.log"
+    local msg="$1"
+    echo -e "${CYAN}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $msg"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $msg" >> "$LOG_DIR/dnstt.log" 2>/dev/null
 }
 
 log_error() {
-    local message="$1"
-    echo -e "${RED}[ERROR]${NC} $message"
-    echo "[ERROR] $message" >> "$LOG_DIR/dnstt.log"
+    echo -e "${RED}[ERROR]${NC} $1"
+    echo "[ERROR] $1" >> "$LOG_DIR/dnstt.log" 2>/dev/null
 }
 
 log_success() {
-    local message="$1"
-    echo -e "${GREEN}[SUCCESS]${NC} $message"
-    echo "[SUCCESS] $message" >> "$LOG_DIR/dnstt.log"
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo "[SUCCESS] $1" >> "$LOG_DIR/dnstt.log" 2>/dev/null
 }
 
-#============================================
-# ULTRA SPEED OPTIMIZATION v2.0
-# Enhanced UDP + SSH optimizations
-# Target: 10-25 Mbps
-#============================================
-
+#============================================================
+# SYSTEM OPTIMIZATIONS (ULTRA v2)
+#============================================================
 optimize_system_ultra() {
-    log_message "${YELLOW}⚡ Applying ULTRA SPEED v2.0 optimization...${NC}"
+    log_message "${YELLOW}⚡ APPLYING ULTRA SPEED v2.0 OPTIMIZATION...${NC}"
     echo ""
-    
-    # Enable IP forwarding
-    sysctl -w net.ipv4.ip_forward=1 > /dev/null 2>&1 || true
-    
-    # Load required modules
+
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
     modprobe tcp_bbr 2>/dev/null || true
     modprobe tcp_hybla 2>/dev/null || true
-    
-    # Set massive ulimit
     ulimit -n 2097152 2>/dev/null || ulimit -n 1048576 2>/dev/null || true
-    
-    echo -e "${CYAN}[1/12]${NC} Configuring BBR v2 (Next-gen congestion control)..."
-    sysctl -w net.ipv4.tcp_congestion_control=bbr > /dev/null 2>&1 || true
-    sysctl -w net.core.default_qdisc=fq_codel > /dev/null 2>&1 || sysctl -w net.core.default_qdisc=fq > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ BBR v2 enabled with FQ-CoDel${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[2/12]${NC} CRITICAL: Maximum network buffers (1GB for ULTRA speed)..."
-    sysctl -w net.core.rmem_max=1073741824 > /dev/null 2>&1 || true
-    sysctl -w net.core.wmem_max=1073741824 > /dev/null 2>&1 || true
-    sysctl -w net.core.rmem_default=134217728 > /dev/null 2>&1 || true
-    sysctl -w net.core.wmem_default=134217728 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_rmem="16384 1048576 1073741824" > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_wmem="16384 1048576 1073741824" > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ Network buffers: 1GB configured${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[3/12]${NC} EXTREME UDP optimization (512KB buffers - EDNS0++)..."
-    sysctl -w net.ipv4.udp_rmem_min=524288 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.udp_wmem_min=524288 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.udp_mem="524288 1048576 2097152" > /dev/null 2>&1 || true
-    
-    # Advanced UDP tuning
-    sysctl -w net.core.netdev_max_backlog=300000 > /dev/null 2>&1 || true
-    sysctl -w net.core.netdev_budget=3000 > /dev/null 2>&1 || true
-    sysctl -w net.core.netdev_budget_usecs=20000 > /dev/null 2>&1 || true
-    sysctl -w net.core.somaxconn=262144 > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ UDP: 512KB buffers + 300K backlog (no packet loss)${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[4/12]${NC} SSH-specific optimizations (maximum throughput)..."
-    # SSH uses TCP, optimize for SSH traffic
-    sysctl -w net.ipv4.tcp_window_scaling=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_adv_win_scale=2 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_moderate_rcvbuf=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_notsent_lowat=131072 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_retries1=3 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_retries2=5 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_orphan_retries=1 > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ SSH bulk transfer optimizations${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[5/12]${NC} Massive connection tracking (8M connections)..."
-    sysctl -w net.netfilter.nf_conntrack_max=8000000 > /dev/null 2>&1 || true
-    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=432000 > /dev/null 2>&1 || true
-    sysctl -w net.netfilter.nf_conntrack_udp_timeout=600 > /dev/null 2>&1 || true
-    sysctl -w net.netfilter.nf_conntrack_udp_timeout_stream=600 > /dev/null 2>&1 || true
-    echo 1048576 > /sys/module/nf_conntrack/parameters/hashsize 2>/dev/null || true
-    echo -e "${GREEN}✓ Connection tracking: 8M connections${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[6/12]${NC} Advanced TCP optimizations..."
-    sysctl -w net.ipv4.tcp_fastopen=3 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_slow_start_after_idle=0 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_tw_reuse=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_tw_recycle=0 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_fin_timeout=5 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_max_tw_buckets=2000000 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_max_syn_backlog=262144 > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ TCP FastOpen + advanced tuning${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[7/12]${NC} TCP Keepalive for stable tunnels..."
-    sysctl -w net.ipv4.tcp_keepalive_time=60 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_keepalive_probes=5 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_keepalive_intvl=10 > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ TCP Keepalive: 60s intervals${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[8/12]${NC} Zero-copy and offloading optimizations..."
-    sysctl -w net.ipv4.tcp_low_latency=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_sack=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_fack=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_timestamps=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_mtu_probing=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_tso_win_divisor=3 > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ Zero-copy + offloading enabled${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[9/12]${NC} Expanded port range (mega scale)..."
-    sysctl -w net.ipv4.ip_local_port_range="1024 65535" > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.ip_local_reserved_ports="" > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ Port range: 1024-65535 (64K ports)${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[10/12]${NC} DNS tunnel specific optimizations..."
-    sysctl -w net.ipv4.udp_early_demux=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.ip_early_demux=1 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_early_retrans=3 > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.route.max_size=4194304 > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ DNS tunnel optimizations${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[11/12]${NC} Memory and queue optimizations..."
-    sysctl -w net.core.optmem_max=134217728 > /dev/null 2>&1 || true
-    sysctl -w net.core.netdev_budget=3000 > /dev/null 2>&1 || true
-    sysctl -w net.core.netdev_budget_usecs=20000 > /dev/null 2>&1 || true
-    sysctl -w vm.min_free_kbytes=65536 > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ Memory optimization: 128MB socket buffers${NC}"
-    sleep 0.5
-    
-    echo -e "${CYAN}[12/12]${NC} Creating permanent configuration..."
-    
+
+    echo -e "${CYAN}[1/12]${NC} CONFIGURING BBR v2..."
+    sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
+    sysctl -w net.core.default_qdisc=fq_codel >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ BBR v2 + FQ-CODEL ENABLED${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[2/12]${NC} MAXIMUM NETWORK BUFFERS (1GB)..."
+    sysctl -w net.core.rmem_max=1073741824 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_max=1073741824 >/dev/null 2>&1 || true
+    sysctl -w net.core.rmem_default=134217728 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_default=134217728 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_rmem="16384 1048576 1073741824" >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_wmem="16384 1048576 1073741824" >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ NETWORK BUFFERS: 1GB CONFIGURED${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[3/12]${NC} UDP OPTIMIZATION (512KB)..."
+    sysctl -w net.ipv4.udp_rmem_min=524288 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_wmem_min=524288 >/dev/null 2>&1 || true
+    sysctl -w net.core.netdev_max_backlog=300000 >/dev/null 2>&1 || true
+    sysctl -w net.core.somaxconn=262144 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ UDP: 512KB BUFFERS + 300K BACKLOG${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[4/12]${NC} SSH-SPECIFIC OPTIMIZATIONS..."
+    sysctl -w net.ipv4.tcp_window_scaling=1 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_notsent_lowat=131072 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_retries1=3 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_retries2=5 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ SSH BULK TRANSFER OPTIMIZATIONS${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[5/12]${NC} CONNECTION TRACKING (8M)..."
+    sysctl -w net.netfilter.nf_conntrack_max=8000000 >/dev/null 2>&1 || true
+    sysctl -w net.netfilter.nf_conntrack_tcp_timeout_established=432000 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ CONNECTION TRACKING: 8M${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[6/12]${NC} ADVANCED TCP OPTIMIZATIONS..."
+    sysctl -w net.ipv4.tcp_fastopen=3 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_slow_start_after_idle=0 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_tw_reuse=1 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_fin_timeout=5 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_max_syn_backlog=262144 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ TCP FASTOPEN + ADVANCED TUNING${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[7/12]${NC} TCP KEEPALIVE FOR STABLE TUNNELS..."
+    sysctl -w net.ipv4.tcp_keepalive_time=60 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_keepalive_probes=5 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_keepalive_intvl=10 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ KEEPALIVE: 60S INTERVALS${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[8/12]${NC} ZERO-COPY AND OFFLOADING..."
+    sysctl -w net.ipv4.tcp_sack=1 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_timestamps=1 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.tcp_mtu_probing=1 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ ZERO-COPY + OFFLOADING ENABLED${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[9/12]${NC} PORT RANGE EXPANSION..."
+    sysctl -w net.ipv4.ip_local_port_range="1024 65535" >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ PORT RANGE: 1024-65535${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[10/12]${NC} DNS TUNNEL SPECIFIC..."
+    sysctl -w net.ipv4.udp_early_demux=1 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.ip_early_demux=1 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ DNS TUNNEL OPTIMIZATIONS${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[11/12]${NC} MEMORY AND QUEUE..."
+    sysctl -w net.core.optmem_max=134217728 >/dev/null 2>&1 || true
+    sysctl -w vm.min_free_kbytes=65536 >/dev/null 2>&1 || true
+    echo -e "${GREEN}✓ MEMORY: 128MB SOCKET BUFFERS${NC}"; sleep 0.3
+
+    echo -e "${CYAN}[12/12]${NC} SAVING PERMANENT CONFIGURATION..."
     cat > /etc/sysctl.d/99-dnstt-ultra-v2.conf << 'EOF'
-# DNSTT ULTRA SPEED v2.0 - SSH OPTIMIZED
-# Created By MR BLACK KILLER
-# Optimized for 10-25 Mbps DNS tunnel speeds
-# SSH ONLY - Maximum Performance
-
-### IP FORWARDING ###
 net.ipv4.ip_forward = 1
-
-### BBR v2 CONGESTION CONTROL ###
 net.ipv4.tcp_congestion_control = bbr
 net.core.default_qdisc = fq_codel
-
-### MAXIMUM NETWORK BUFFERS (1GB) ###
 net.core.rmem_max = 1073741824
 net.core.wmem_max = 1073741824
 net.core.rmem_default = 134217728
 net.core.wmem_default = 134217728
 net.ipv4.tcp_rmem = 16384 1048576 1073741824
 net.ipv4.tcp_wmem = 16384 1048576 1073741824
-net.core.optmem_max = 134217728
-
-### EXTREME UDP OPTIMIZATION (512KB - EDNS0++) ###
 net.ipv4.udp_rmem_min = 524288
 net.ipv4.udp_wmem_min = 524288
-net.ipv4.udp_mem = 524288 1048576 2097152
-
-### DNS BURST HANDLING (300K PACKETS) ###
 net.core.netdev_max_backlog = 300000
-net.core.netdev_budget = 3000
-net.core.netdev_budget_usecs = 20000
 net.core.somaxconn = 262144
-
-### MASSIVE CONNECTION TRACKING (8M) ###
 net.netfilter.nf_conntrack_max = 8000000
-net.netfilter.nf_conntrack_tcp_timeout_established = 432000
-net.netfilter.nf_conntrack_udp_timeout = 600
-net.netfilter.nf_conntrack_udp_timeout_stream = 600
-
-### SSH-SPECIFIC OPTIMIZATIONS ###
-net.ipv4.tcp_window_scaling = 1
-net.ipv4.tcp_adv_win_scale = 2
-net.ipv4.tcp_moderate_rcvbuf = 1
-net.ipv4.tcp_notsent_lowat = 131072
-
-### ADVANCED TCP OPTIMIZATIONS ###
 net.ipv4.tcp_fastopen = 3
 net.ipv4.tcp_slow_start_after_idle = 0
 net.ipv4.tcp_tw_reuse = 1
-net.ipv4.tcp_tw_recycle = 0
 net.ipv4.tcp_fin_timeout = 5
-net.ipv4.tcp_max_tw_buckets = 2000000
-net.ipv4.tcp_max_syn_backlog = 262144
-net.ipv4.tcp_retries1 = 3
-net.ipv4.tcp_retries2 = 5
-net.ipv4.tcp_orphan_retries = 1
-
-### TCP KEEPALIVE ###
 net.ipv4.tcp_keepalive_time = 60
 net.ipv4.tcp_keepalive_probes = 5
 net.ipv4.tcp_keepalive_intvl = 10
-
-### ZERO-COPY & OFFLOADING ###
-net.ipv4.tcp_low_latency = 1
 net.ipv4.tcp_sack = 1
-net.ipv4.tcp_fack = 1
 net.ipv4.tcp_timestamps = 1
-net.ipv4.tcp_mtu_probing = 1
-net.ipv4.tcp_tso_win_divisor = 3
-
-### PORT RANGE ###
 net.ipv4.ip_local_port_range = 1024 65535
-
-### DNS-SPECIFIC ###
-net.ipv4.udp_early_demux = 1
-net.ipv4.ip_early_demux = 1
-net.ipv4.tcp_early_retrans = 3
-net.ipv4.route.max_size = 4194304
-
-### MEMORY ###
 vm.min_free_kbytes = 65536
 EOF
 
-    echo -e "${GREEN}✓ Config saved: /etc/sysctl.d/99-dnstt-ultra-v2.conf${NC}"
-    
-    echo -e "${CYAN}[BONUS]${NC} Setting ultra-high file descriptors..."
-    cat > /etc/security/limits.d/99-dnstt-ultra-v2.conf << 'EOF'
-# DNSTT ULTRA v2.0 - Maximum file descriptors
-# Created By MR BLACK KILLER
+    cat > /etc/security/limits.d/99-dnstt-ultra.conf << 'EOF'
 * soft nofile 2097152
 * hard nofile 2097152
 root soft nofile 2097152
 root hard nofile 2097152
-* soft nproc 2097152
-* hard nproc 2097152
 EOF
-    echo -e "${GREEN}✓ File descriptors: 2M (ultra scale)${NC}"
-    
+    echo -e "${GREEN}✓ CONFIG SAVED${NC}"; sleep 0.3
+
     echo ""
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║         ⚡ ULTRA SPEED v2.0 ACTIVATED ⚡            ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${CYAN}Optimization Summary (SSH OPTIMIZED):${NC}"
-    echo -e "  ${GREEN}✓${NC} BBR v2 + FQ-CoDel"
-    echo -e "  ${GREEN}✓${NC} 1GB Network Buffers"
-    echo -e "  ${GREEN}✓${NC} 512KB UDP Buffers (EDNS0++)"
-    echo -e "  ${GREEN}✓${NC} 300K Packet Backlog"
-    echo -e "  ${GREEN}✓${NC} 8M Connection Tracking"
-    echo -e "  ${GREEN}✓${NC} SSH Bulk Transfer Optimization"
-    echo -e "  ${GREEN}✓${NC} Zero-Copy + Offloading"
-    echo -e "  ${GREEN}✓${NC} 2M File Descriptors"
-    echo -e "  ${GREEN}✓${NC} Advanced TCP tuning"
-    echo ""
-    echo -e "${YELLOW}Expected Speed: 10-25 Mbps 🚀🚀🚀${NC}"
-    
-    sleep 3
+    dsep
+    echo -e "${BGREEN}⚡ ULTRA SPEED v2.0 ACTIVATED ⚡${NC}"
+    dsep
+    echo -e "  ${GREEN}✓${NC} BBR v2 + FQ-CODEL"
+    echo -e "  ${GREEN}✓${NC} 1GB NETWORK BUFFERS"
+    echo -e "  ${GREEN}✓${NC} 512KB UDP BUFFERS"
+    echo -e "  ${GREEN}✓${NC} 8M CONNECTION TRACKING"
+    echo -e "  ${YELLOW}EXPECTED SPEED: 10-25 Mbps 🚀${NC}"
+    sleep 2
 }
 
-#============================================
-# SSH SERVER OPTIMIZATION
-#============================================
-
+#============================================================
+# 512B SMALL-PACKET OPTIMIZATION
+#============================================================
 optimize_for_512() {
-    log_message "${YELLOW}⚡ Applying 512B MTU High-Frequency Small-Packet optimizations...${NC}"
+    log_message "${YELLOW}⚡ APPLYING 512B HIGH-FREQUENCY OPTIMIZATION...${NC}"
     echo ""
-
-    # ── Design rationale ────────────────────────────────────────────────────────
-    # At MTU=512 the DNSTT process sends thousands of tiny UDP datagrams per
-    # second.  The bottleneck is NOT bandwidth — it is PACKET-PROCESSING RATE.
-    #
-    # Three failure modes cause the 300 kbps ceiling:
-    #   1. UDP socket drop  – kernel recv queue fills faster than userspace drains
-    #   2. NAPI starvation  – default budget/usecs too high → small pkts delayed
-    #   3. Congestion misfit – standard BBR is calibrated for large, smooth flows;
-    #                          it backs off too aggressively on the bursty/lossy
-    #                          pattern produced by DNS relays.
-    #
-    # The settings below attack all three.
-    # ────────────────────────────────────────────────────────────────────────────
-
-    # ── [A] UDP socket buffers: sized for HIGH PACKET COUNT, not high bandwidth ─
-    # At 512 B/pkt and 4 Mbps target: ~1000 pkts/s.  We want to absorb at least
-    # 0.5 s of burst without dropping → 500 pkts × 512 B = 256 KB minimum queue.
-    # We set rmem_max/wmem_max to 8 MB so each DNSTT socket can grow its buffer
-    # via SO_RCVBUF without hitting the system cap.
-    # udp_rmem_min/wmem_min is the GUARANTEED floor per socket — set to exactly
-    # one DNS "page" (4096 B) × 512 = 2 MB so the allocator never under-commits.
-    echo -e "${CYAN}[A]${NC} UDP socket buffer tuning for 512B high-packet-rate..."
-    sysctl -w net.core.rmem_max=8388608             > /dev/null 2>&1 || true  # 8 MB socket cap
-    sysctl -w net.core.wmem_max=8388608             > /dev/null 2>&1 || true
-    sysctl -w net.core.rmem_default=2097152         > /dev/null 2>&1 || true  # 2 MB default
-    sysctl -w net.core.wmem_default=2097152         > /dev/null 2>&1 || true
-    # udp_rmem_min / udp_wmem_min: guaranteed floor for each UDP socket.
-    # Value = 512 (MTU) × 4096 (pkts) = 2 097 152 B  → the kernel will NEVER
-    # shrink a DNSTT socket below this, preventing drop under memory pressure.
-    sysctl -w net.ipv4.udp_rmem_min=2097152         > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.udp_wmem_min=2097152         > /dev/null 2>&1 || true
-    # udp_mem (pages): low / pressure / max.  Values in 4 KB pages.
-    # 256 MB / 512 MB / 1 GB  → enough headroom for thousands of concurrent DNS pkts.
-    sysctl -w net.ipv4.udp_mem="65536 131072 262144" > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ UDP buffers: 8 MB cap | 2 MB floor/socket (512B × 4096 pkts guaranteed)${NC}"
-    sleep 0.3
-
-    # ── [B] NAPI poll budget: reduce CPU interrupt delay for small packets ───────
-    # net.core.netdev_budget = number of packets processed per NAPI poll cycle.
-    # Smaller value → kernel returns to userspace sooner → lower per-packet latency.
-    # For 512B DNS floods, 300 packets/cycle at 1500 µs ceiling is the sweet spot:
-    #   - high enough to avoid excessive context switches
-    #   - low enough to not starve the DNSTT process between polls
-    # netdev_max_backlog = per-CPU queue depth before the kernel starts dropping.
-    # 100 000 gives ~50 MB of headroom at 512 B/pkt.
-    echo -e "${CYAN}[B]${NC} NAPI interrupt budget for high-frequency small packets..."
-    sysctl -w net.core.netdev_budget=300            > /dev/null 2>&1 || true
-    sysctl -w net.core.netdev_budget_usecs=1500     > /dev/null 2>&1 || true
-    sysctl -w net.core.netdev_max_backlog=100000    > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ NAPI: 300 pkts/cycle | 1500 µs ceiling | 100K backlog${NC}"
-    sleep 0.3
-
-    # ── [C] Congestion control: HYBLA — built for lossy/high-latency links ───────
-    # Standard BBR assumes a clean, measurable BDP.  DNS tunnels are neither:
-    #   - DNS relays add variable jitter (10–200 ms)
-    #   - Packet loss is structural (DNS truncation, relay drops)
-    #   - RTT measurements are noisy → BBR's model becomes inaccurate → throttles
-    #
-    # TCP HYBLA was designed specifically for satellite/lossy links. It uses a
-    # fixed reference RTT (RTT0=25 ms) and scales the window aggressively even
-    # when loss is detected — exactly what a DNS tunnel needs.
-    # We pair it with fq (not fq_codel) because fq_codel's AQM actively DROPS
-    # packets at 5 ms queue delay — far too aggressive for DNS tunnel jitter.
-    echo -e "${CYAN}[C]${NC} Congestion control: HYBLA (lossy/high-latency DNS environment)..."
+    sysctl -w net.core.rmem_max=8388608 >/dev/null 2>&1 || true
+    sysctl -w net.core.wmem_max=8388608 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_rmem_min=2097152 >/dev/null 2>&1 || true
+    sysctl -w net.ipv4.udp_wmem_min=2097152 >/dev/null 2>&1 || true
+    sysctl -w net.core.netdev_budget=300 >/dev/null 2>&1 || true
+    sysctl -w net.core.netdev_budget_usecs=1500 >/dev/null 2>&1 || true
+    sysctl -w net.core.netdev_max_backlog=100000 >/dev/null 2>&1 || true
     modprobe tcp_hybla 2>/dev/null || true
-    if sysctl -w net.ipv4.tcp_congestion_control=hybla > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ HYBLA enabled (lossy-link optimized — replaces BBR for DNS tunnel)${NC}"
-    else
-        # Fallback: BBR is better than cubic if hybla module is unavailable
-        modprobe tcp_bbr 2>/dev/null || true
-        sysctl -w net.ipv4.tcp_congestion_control=bbr > /dev/null 2>&1 || true
-        echo -e "${YELLOW}⚠ HYBLA unavailable — fell back to BBR${NC}"
-    fi
-    # fq scheduler: pure per-flow fair queuing with NO active queue management.
-    # This avoids fq_codel's aggressive early drops on bursty DNS traffic.
-    sysctl -w net.core.default_qdisc=fq             > /dev/null 2>&1 || true
-    # Increase TCP initial congestion window for small-RTT loopback SSH leg.
-    ip route change local 127.0.0.0/8 dev lo initcwnd 32 2>/dev/null || true
-    echo -e "${GREEN}✓ QDisc: fq (no AQM drop — safe for bursty DNS bursts)${NC}"
-    sleep 0.3
-
-    # ── [D] TCP tuning: optimize the SSH leg (loopback TCP inside tunnel) ────────
-    # The SSH session travels over TCP between DNSTT and sshd on 127.0.0.1.
-    # With effective MTU=512 the TCP MSS is ~460 B — segments are tiny and many.
-    # Key settings:
-    #   tcp_low_latency=1   : skip receive buffer auto-tuning delays
-    #   tcp_sack=1          : selective ACK → faster retransmit on packet loss
-    #   tcp_notsent_lowat   : limit unsent bytes in socket buffer → lower write latency
-    #   tcp_adv_win_scale=-2: use a larger fraction of rmem as the TCP window
-    #                         (important when rmem is big but segments are tiny)
-    echo -e "${CYAN}[D]${NC} TCP tuning for SSH leg over 512B tunnel..."
-    sysctl -w net.ipv4.tcp_low_latency=1            > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_sack=1                   > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_timestamps=1             > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_fastopen=3               > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_slow_start_after_idle=0  > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_notsent_lowat=16384      > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_adv_win_scale=-2         > /dev/null 2>&1 || true
-    # Faster retransmit thresholds: don't wait 3 dupACKs on a lossy DNS link
-    sysctl -w net.ipv4.tcp_reordering=3             > /dev/null 2>&1 || true
-    sysctl -w net.ipv4.tcp_early_retrans=3          > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ TCP: low-latency mode | SACK | fast retransmit | low notsent_lowat${NC}"
-    sleep 0.3
-
-    # ── [E] Loopback MTU: keep local SSH leg at full size ───────────────────────
-    # DNSTT decapsulates DNS packets and re-injects them to 127.0.0.1:SSH_PORT
-    # over loopback.  The loopback MTU should stay at 65536 so the SSH TCP
-    # stack uses large segments internally — only the DNS wire MTU is 512.
-    echo -e "${CYAN}[E]${NC} Loopback MTU: ensuring 65536 for local SSH forwarding..."
+    sysctl -w net.ipv4.tcp_congestion_control=hybla >/dev/null 2>&1 || true
+    sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1 || true
     ip link set lo mtu 65536 2>/dev/null || true
-    echo -e "${GREEN}✓ Loopback MTU = 65536 (SSH leg unaffected by DNS MTU constraint)${NC}"
-    sleep 0.3
-
-    # ── [F] I/O multiplexing: ulimit + process priority ──────────────────────────
-    # Each active DNS stream = 1 file descriptor in DNSTT.  At 2–4 Mbps with
-    # 512B packets we may have hundreds of concurrent "streams".
-    # Raise the process-level FD limit and pin DNSTT to high scheduler priority.
-    echo -e "${CYAN}[F]${NC} File descriptor limit and process priority..."
-    ulimit -n 1048576 2>/dev/null || ulimit -n 524288 2>/dev/null || true
-    # Renice the current shell's child processes (dnstt will inherit nice=-10)
-    renice -n -10 -p $$ 2>/dev/null || true
-    echo -e "${GREEN}✓ FD limit: 1M | process nice: -10 (high priority)${NC}"
-    sleep 0.3
-
-    # ── [G] Persist all settings ────────────────────────────────────────────────
-    echo -e "${CYAN}[G]${NC} Saving 512B tunnel sysctl config permanently..."
-    cat > /etc/sysctl.d/99-dnstt-512b-tunnel.conf << 'SYSCTL'
-# DNSTT 512B MTU Tunnel Optimizations — High-Frequency Small-Packet Edition
-# Created By MR BLACK KILLER
-# Target: 2–4 Mbps through 512B MTU DNS tunnel (replaces 300 kbps default)
-
-# ── UDP socket buffers (8 MB cap, 2 MB guaranteed floor per socket) ──────────
-net.core.rmem_max       = 8388608
-net.core.wmem_max       = 8388608
-net.core.rmem_default   = 2097152
-net.core.wmem_default   = 2097152
-# udp_rmem_min = 512 B × 4096 pkts = 2 MB (never drop under memory pressure)
-net.ipv4.udp_rmem_min   = 2097152
-net.ipv4.udp_wmem_min   = 2097152
-# udp_mem in 4 KB pages: 256 MB / 512 MB / 1 GB
-net.ipv4.udp_mem        = 65536 131072 262144
-
-# ── NAPI budget: 300 pkts/cycle | 1500 µs | 100K backlog ────────────────────
-net.core.netdev_budget       = 300
-net.core.netdev_budget_usecs = 1500
-net.core.netdev_max_backlog  = 100000
-
-# ── Congestion control: HYBLA (lossy/jittery DNS link) + fq qdisc ───────────
-net.ipv4.tcp_congestion_control = hybla
-net.core.default_qdisc          = fq
-
-# ── TCP low-latency SSH leg (loopback, tiny segments) ───────────────────────
-net.ipv4.tcp_low_latency         = 1
-net.ipv4.tcp_sack                = 1
-net.ipv4.tcp_timestamps          = 1
-net.ipv4.tcp_fastopen            = 3
-net.ipv4.tcp_slow_start_after_idle = 0
-net.ipv4.tcp_notsent_lowat       = 16384
-net.ipv4.tcp_adv_win_scale       = -2
-net.ipv4.tcp_reordering          = 3
-net.ipv4.tcp_early_retrans       = 3
-
-# ── General ──────────────────────────────────────────────────────────────────
-net.ipv4.ip_forward = 1
-SYSCTL
-    sysctl -p /etc/sysctl.d/99-dnstt-512b-tunnel.conf > /dev/null 2>&1 || true
-    echo -e "${GREEN}✓ Saved + applied: /etc/sysctl.d/99-dnstt-512b-tunnel.conf${NC}"
-
-    echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║  ⚡ 512B HIGH-FREQUENCY SMALL-PACKET MODE ACTIVE ⚡  ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
-    echo -e "  ${GREEN}✓${NC} UDP: 8 MB socket cap | 2 MB floor (512B × 4096 pkts)"
-    echo -e "  ${GREEN}✓${NC} NAPI: 300 pkts/cycle | 1500 µs (low interrupt latency)"
-    echo -e "  ${GREEN}✓${NC} Congestion: HYBLA (lossy/jitter-tolerant — not BBR)"
-    echo -e "  ${GREEN}✓${NC} QDisc: fq (no AQM early-drop on DNS bursts)"
-    echo -e "  ${GREEN}✓${NC} TCP SSH leg: SACK | notsent_lowat=16K | adv_win_scale=-2"
-    echo -e "  ${GREEN}✓${NC} Loopback MTU: 65536 (SSH leg unaffected by DNS MTU)"
-    echo -e "  ${GREEN}✓${NC} FD limit: 1M | Process nice: -10"
-    echo -e "  ${YELLOW}Expected: 300 kbps → 2–4 Mbps through 512B MTU tunnel${NC}"
-    echo ""
+    ulimit -n 1048576 2>/dev/null || true
+    log_success "512B SMALL-PACKET MODE ACTIVE"
     sleep 1
 }
 
+#============================================================
+# SSH SERVER OPTIMIZATION
+#============================================================
 optimize_ssh_server() {
-    log_message "${YELLOW}🔧 Optimizing SSH server for 512B MTU tunnel (minimum overhead)...${NC}"
-    echo ""
+    log_message "${YELLOW}🔧 OPTIMIZING SSH SERVER...${NC}"
+    local sshd_cfg="/etc/ssh/sshd_config"
 
-    # ── Design rationale ──────────────────────────────────────────────────────
-    # Inside a DNS tunnel every byte of SSH header eats into the 512B payload.
-    # A standard AES-128-CTR frame adds:
-    #   4B length + 1B padding_len + padding + 16B MAC  = ~21B overhead / packet
-    # chacha20-poly1305 merges encryption + MAC into one pass and uses AEAD, so:
-    #   4B length + 1B padding_len + padding + 16B Poly1305 tag = same bytes BUT
-    #   the CPU cost is ~3× lower → DNSTT can process more packets per second.
-    #
-    # Additionally: SSH compression (zlib) operates on the plaintext BEFORE
-    # encryption. On interactive shell traffic (text) it typically achieves
-    # 3:1 compression. This means more data fits in each 512B DNS query.
-    #
-    # RekeyLimit is set LOW (32M / 15min) because a rekey in a DNS tunnel
-    # causes a multi-RTT pause. Keeping the rekey cheap+frequent avoids a
-    # single long stall. "32M" means after 32 MB of data OR 15 minutes,
-    # whichever comes first.
-    # ─────────────────────────────────────────────────────────────────────────
-
-    # Backup original sshd_config (only once)
-    if [[ ! -f /etc/ssh/sshd_config.backup ]]; then
-        cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
-        echo -e "${GREEN}✓ Backed up original SSH config${NC}"
+    if [[ ! -f "${sshd_cfg}.backup" ]]; then
+        cp "$sshd_cfg" "${sshd_cfg}.backup"
     fi
 
-    # Remove any previous DNSTT SSH block to avoid duplicates on reinstall
-    if grep -q "# DNSTT ULTRA" /etc/ssh/sshd_config 2>/dev/null; then
-        sed -i '/# DNSTT ULTRA/,/^# END DNSTT/d' /etc/ssh/sshd_config
-        echo -e "${CYAN}↺ Removed previous DNSTT SSH block (fresh apply)${NC}"
-    fi
+    local ciphers="chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com"
+    local macs="hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com"
+    local kex="curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512"
 
-    cat >> /etc/ssh/sshd_config << 'EOF'
+    sed -i '/^Ciphers /d; /^MACs /d; /^KexAlgorithms /d; /^Compression /d; /^IPQoS /d' "$sshd_cfg"
+    cat >> "$sshd_cfg" << EOF
 
-# DNSTT 512B MTU Edition — SSH Optimizations
-# Created By MR BLACK KILLER
-# END DNSTT marker: do not remove this line
-
-# ── Keepalive: keep the tunnel from timing out at DNS relay ──────────────────
-TCPKeepAlive yes
-ClientAliveInterval 20
-ClientAliveCountMax 6
-
-# ── Compression: zlib on plaintext — MORE payload per 512B query ─────────────
-# "delayed" = zlib kicks in after auth (protects against CRIME-style attacks)
+# BLACK KILLER SSH OPTIMIZATION v9.0
+Ciphers $ciphers
+MACs $macs
+KexAlgorithms $kex
 Compression delayed
-
-# ── Cipher order: chacha20-poly1305 FIRST — lowest overhead, fastest CPU ─────
-# chacha20-poly1305: single-pass AEAD, no separate MAC compute, ~3× faster
-#   than AES-CTR+HMAC on servers without AES-NI (common on VPS).
-# aes128-gcm: hardware AES-NI path, similar speed on modern CPUs with AES-NI.
-# aes128/256-ctr: kept for HTTP Injector / legacy client compatibility.
-Ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes256-ctr,aes192-ctr
-
-# ── MACs: ETM variants only — authenticate-then-encrypt, lower overhead ──────
-# Non-ETM MACs compute over plaintext + ciphertext = extra CPU per packet.
-# ETM computes only over ciphertext = cheaper, and is the modern standard.
-MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com
-
-# ── Key exchange: fastest curve — minimal RTTs on tunnel setup ───────────────
-KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256
-
-# ── Rekey: small limit avoids long rekey stalls in DNS tunnel ────────────────
-# 32M data OR 15 min — keeps each rekey pause short and predictable
-RekeyLimit 32M 15m
-
-# ── Concurrency ───────────────────────────────────────────────────────────────
-MaxSessions 500
-MaxStartups 200:30:1000
-MaxAuthTries 8
-
-# ── Disable pre-auth banner (saves bytes on every new connection) ─────────────
-PrintMotd no
-PrintLastLog no
+IPQoS lowdelay throughput
 EOF
 
-    echo -e "${GREEN}✓ SSH server optimized for 512B MTU tunnel:${NC}"
-    echo -e "  ${GREEN}✓${NC} Cipher order: chacha20-poly1305 first (lowest per-packet overhead)"
-    echo -e "  ${GREEN}✓${NC} Compression: delayed zlib (more payload per DNS query)"
-    echo -e "  ${GREEN}✓${NC} MACs: ETM-only (authenticate-then-encrypt, cheaper on small pkts)"
-    echo -e "  ${GREEN}✓${NC} RekeyLimit: 32M/15m (avoids long rekey pause in tunnel)"
-
-    echo -e "${CYAN}Validating and restarting SSH service...${NC}"
-    if sshd -t 2>/dev/null; then
-        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
-        echo -e "${GREEN}✓ SSH service restarted successfully${NC}"
-    else
-        echo -e "${RED}✗ sshd config test failed — restoring backup${NC}"
-        cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
-        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null
-    fi
-
+    systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
+    log_success "SSH SERVER OPTIMIZED"
     sleep 1
 }
 
-#============================================
-# INSTALLATION
-#============================================
-
+#============================================================
+# INSTALL DEPENDENCIES
+#============================================================
 install_dependencies() {
-    log_message "${YELLOW}📦 Installing dependencies...${NC}"
+    log_message "${YELLOW}📦 INSTALLING DEPENDENCIES...${NC}"
     echo ""
 
     if [[ -f /etc/debian_version ]]; then
-        export DEBIAN_FRONTEND=noninteractive
-
-        echo -e "${CYAN}Updating package lists...${NC}"
-        if ! apt-get update -qq 2>&1; then
-            log_error "apt-get update failed — check network or /etc/apt/sources.list"
-            return 1
-        fi
-        echo -e "${GREEN}✓ Package lists updated${NC}"
-
-        # Detect Debian version to handle iptables-persistent removal in Debian 14
-        DEBIAN_VERSION=$(cat /etc/debian_version | cut -d. -f1 2>/dev/null || echo "12")
-        # Debian 14 (trixie) uses "trixie" or version >= 14
-        if grep -qiE "trixie|forky|14" /etc/debian_version /etc/os-release 2>/dev/null; then
-            DEBIAN_MAJOR=14
-        else
-            DEBIAN_MAJOR="${DEBIAN_VERSION}"
-        fi
-
-        echo -e "${CYAN}Detected Debian major version: ${DEBIAN_MAJOR}${NC}"
-
-        # Core packages (always available)
-        PKGS="wget curl git build-essential ca-certificates dnsutils net-tools iproute2 sysstat htop bc openssh-server iptables"
-
-        # iptables-persistent removed in Debian 14 — use nftables instead
-        if [[ "$DEBIAN_MAJOR" -ge 14 ]]; then
-            echo -e "${YELLOW}⚠ Debian 14+: using nftables (iptables-persistent removed)${NC}"
-            PKGS="$PKGS nftables"
-        else
-            PKGS="$PKGS iptables-persistent netfilter-persistent"
-        fi
-
-        echo -e "${CYAN}Installing packages...${NC}"
-        if ! apt-get install -y $PKGS 2>&1; then
-            log_error "Package installation failed. See output above."
-            return 1
-        fi
-        echo -e "${GREEN}✓ All packages installed${NC}"
-
-        echo -e "${CYAN}Enabling SSH service...${NC}"
+        fun_bar "apt-get update -y" "UPDATING PACKAGE LIST"
+        fun_bar "apt-get install -y wget curl git gcc make iptables netfilter-persistent \
+            iptables-persistent ca-certificates dnsutils net-tools sysstat htop bc \
+            openssh-server screen" "INSTALLING PACKAGES"
         systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true
         systemctl start ssh 2>/dev/null || systemctl start sshd 2>/dev/null || true
-        echo -e "${GREEN}✓ SSH service running${NC}"
-
     elif [[ -f /etc/redhat-release ]]; then
-        yum install -y wget curl git gcc make iptables iptables-services \
-            ca-certificates bind-utils net-tools sysstat htop bc openssh-server 2>&1 || true
+        fun_bar "yum install -y wget curl git gcc make iptables iptables-services \
+            ca-certificates bind-utils net-tools sysstat htop bc openssh-server screen" "INSTALLING PACKAGES"
     fi
 
-    echo ""
-    log_success "Dependencies installed successfully"
+    log_success "DEPENDENCIES INSTALLED"
     sleep 1
 }
 
+#============================================================
+# INSTALL GO
+#============================================================
 install_golang() {
-    if command -v go &> /dev/null; then
-        GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-        if [[ "$GO_VERSION" > "1.21" ]]; then
-            log_success "Go $GO_VERSION already installed"
+    if command -v go &>/dev/null; then
+        GO_VER=$(go version | awk '{print $3}' | sed 's/go//')
+        if [[ "$GO_VER" > "1.21" ]]; then
+            log_success "Go $GO_VER ALREADY INSTALLED"
             return 0
         fi
     fi
 
-    log_message "${YELLOW}📦 Installing Go 1.22.4 (Debian 14 compatible)...${NC}"
-    echo ""
-
-    # Detect CPU architecture
+    log_message "${YELLOW}📦 INSTALLING GO 1.22.4...${NC}"
     ARCH=$(uname -m)
     case "$ARCH" in
         x86_64)  GO_ARCH="amd64" ;;
@@ -733,354 +413,189 @@ install_golang() {
         *)       GO_ARCH="amd64" ;;
     esac
 
-    GO_VERSION_NUM="1.22.4"
-    GO_TARBALL="go${GO_VERSION_NUM}.linux-${GO_ARCH}.tar.gz"
-    GO_URL="https://go.dev/dl/${GO_TARBALL}"
+    GO_VER="1.22.4"
+    GO_TB="go${GO_VER}.linux-${GO_ARCH}.tar.gz"
+    cd /tmp || return 1
 
-    cd /tmp
-    echo -e "${CYAN}Downloading Go ${GO_VERSION_NUM} for ${GO_ARCH}...${NC}"
-    if ! wget -q --show-progress "$GO_URL" -O "$GO_TARBALL"; then
-        log_error "Failed to download Go. Check internet connection."
-        return 1
-    fi
-    echo -e "${GREEN}✓ Downloaded${NC}"
+    fun_bar "wget -q https://go.dev/dl/${GO_TB} -O ${GO_TB}" "DOWNLOADING GO ${GO_VER}"
+    fun_bar "tar -C /usr/local -xzf ${GO_TB} && rm -f ${GO_TB}" "EXTRACTING GO"
 
-    echo -e "${CYAN}Extracting...${NC}"
-    rm -rf /usr/local/go
-    if ! tar -C /usr/local -xzf "$GO_TARBALL"; then
-        log_error "Failed to extract Go tarball"
-        rm -f "$GO_TARBALL"
-        return 1
-    fi
-    rm -f "$GO_TARBALL"
-    echo -e "${GREEN}✓ Extracted${NC}"
-
-    # Setup Go environment
     export PATH=$PATH:/usr/local/go/bin
     export GOPATH=/root/go
     export GOCACHE=/root/.cache/go-build
 
-    cat > /etc/profile.d/golang.sh << 'GOEOF'
+    cat > /etc/profile.d/golang.sh << 'EOF'
 export PATH=$PATH:/usr/local/go/bin
 export GOPATH=/root/go
 export GOCACHE=/root/.cache/go-build
-GOEOF
+EOF
     chmod +x /etc/profile.d/golang.sh
 
-    # Make available in current session immediately
-    export PATH=$PATH:/usr/local/go/bin
-
     if ! command -v go &>/dev/null; then
-        log_error "Go installation failed — binary not found after install"
+        log_error "GO INSTALLATION FAILED"
         return 1
     fi
-
-    echo ""
-    log_success "Go $(go version | awk '{print $3}') installed for ${GO_ARCH}"
+    log_success "Go $(go version | awk '{print $3}') INSTALLED"
     sleep 1
 }
 
+#============================================================
+# BUILD DNSTT
+#============================================================
 build_dnstt() {
-    log_message "${YELLOW}🔨 Building DNSTT from source...${NC}"
-    echo ""
-
-    # Ensure Go is in PATH for this function regardless of how script was invoked
+    log_message "${YELLOW}🔨 BUILDING DNSTT FROM SOURCE...${NC}"
     export PATH=$PATH:/usr/local/go/bin
     export GOPATH=/root/go
     export GOCACHE=/root/.cache/go-build
     export GO111MODULE=on
 
     if ! command -v go &>/dev/null; then
-        log_error "Go not found in PATH. Install Go first."
+        log_error "GO NOT FOUND. INSTALL GO FIRST."
         return 1
     fi
 
-    cd /tmp
+    cd /tmp || return 1
     rm -rf dnstt-src
 
-    echo -e "${CYAN}Cloning DNSTT repository...${NC}"
-    # Primary source
+    echo -e "${CYAN}CLONING DNSTT REPOSITORY...${NC}"
     if git clone https://www.bamsoftware.com/git/dnstt.git dnstt-src 2>&1; then
-        echo -e "${GREEN}✓ Cloned from bamsoftware.com${NC}"
-    # Mirror fallback
+        echo -e "${GREEN}✓ CLONED FROM BAMSOFTWARE.COM${NC}"
     elif git clone https://github.com/ekoops/dnstt.git dnstt-src 2>&1; then
-        echo -e "${YELLOW}⚠ Primary failed — used GitHub mirror${NC}"
+        echo -e "${YELLOW}⚠ USED GITHUB MIRROR${NC}"
     else
-        log_error "Could not clone DNSTT repository. Check internet connection."
+        log_error "COULD NOT CLONE DNSTT REPOSITORY"
         return 1
     fi
 
-    # Build server
-    echo -e "${CYAN}Building dnstt-server...${NC}"
-    cd /tmp/dnstt-src/dnstt-server
+    echo -e "${CYAN}BUILDING DNSTT-SERVER...${NC}"
+    cd /tmp/dnstt-src/dnstt-server || return 1
     if ! go build -o "$DNSTT_SERVER" . 2>&1; then
-        log_error "dnstt-server build failed"
-        cd /tmp
-        rm -rf dnstt-src
+        log_error "DNSTT-SERVER BUILD FAILED"
+        cd /tmp && rm -rf dnstt-src
         return 1
     fi
     chmod +x "$DNSTT_SERVER"
-    echo -e "${GREEN}✓ Server compiled: $DNSTT_SERVER${NC}"
 
-    # Build client
-    echo -e "${CYAN}Building dnstt-client...${NC}"
-    cd /tmp/dnstt-src/dnstt-client
+    echo -e "${CYAN}BUILDING DNSTT-CLIENT...${NC}"
+    cd /tmp/dnstt-src/dnstt-client || return 1
     if ! go build -o "$DNSTT_CLIENT" . 2>&1; then
-        log_error "dnstt-client build failed"
-        cd /tmp
-        rm -rf dnstt-src
+        log_error "DNSTT-CLIENT BUILD FAILED"
+        cd /tmp && rm -rf dnstt-src
         return 1
     fi
     chmod +x "$DNSTT_CLIENT"
-    echo -e "${GREEN}✓ Client compiled: $DNSTT_CLIENT${NC}"
-
-    # Verify binaries exist and are executable
-    if [[ ! -x "$DNSTT_SERVER" ]] || [[ ! -x "$DNSTT_CLIENT" ]]; then
-        log_error "Binaries missing or not executable after build"
-        return 1
-    fi
-
-    # Cleanup source
-    cd /tmp
-    rm -rf dnstt-src
-
-    echo ""
-    log_success "DNSTT build complete"
-    log_message "   Server: $DNSTT_SERVER ($(du -sh $DNSTT_SERVER | cut -f1))"
-    log_message "   Client: $DNSTT_CLIENT ($(du -sh $DNSTT_CLIENT | cut -f1))"
+    cd /tmp && rm -rf dnstt-src
+    log_success "DNSTT BUILD COMPLETE"
     sleep 1
     return 0
 }
 
-#============================================
+#============================================================
 # FIREWALL CONFIGURATION
-#============================================
-
+#============================================================
 configure_firewall() {
-    log_message "${YELLOW}🔥 Configuring firewall...${NC}"
-    echo ""
+    log_message "${YELLOW}🔥 CONFIGURING FIREWALL...${NC}"
 
-    NET_INTERFACE=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
-    NET_INTERFACE=${NET_INTERFACE:-eth0}
-    log_message "Network interface: $NET_INTERFACE"
+    NET_IF=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
+    NET_IF=${NET_IF:-eth0}
 
-    # Disable UFW — conflicts with raw iptables management
-    if command -v ufw &> /dev/null; then
-        echo -e "${CYAN}Disabling UFW...${NC}"
+    if command -v ufw &>/dev/null; then
         ufw --force disable 2>/dev/null || true
         systemctl stop ufw 2>/dev/null || true
-        systemctl disable ufw 2>/dev/null || true
-        echo -e "${GREEN}✓ UFW disabled${NC}"
     fi
 
-    # Stop systemd-resolved — it holds port 53 and blocks dnstt
     if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
-        echo -e "${CYAN}Stopping systemd-resolved (conflicts with port 53)...${NC}"
         systemctl stop systemd-resolved 2>/dev/null || true
         systemctl disable systemd-resolved 2>/dev/null || true
-        # Write static resolv.conf so the server still resolves names
         rm -f /etc/resolv.conf
-        cat > /etc/resolv.conf << 'RESOLVEOF'
-nameserver 1.1.1.1
-nameserver 8.8.8.8
-RESOLVEOF
-        # Lock it so systemd-resolved can't recreate the symlink
+        printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
         chattr +i /etc/resolv.conf 2>/dev/null || true
-        echo -e "${GREEN}✓ systemd-resolved stopped; resolv.conf set to 1.1.1.1/8.8.8.8${NC}"
     fi
 
-    # CRITICAL: Enable IP forwarding NOW (required for traffic to pass through tunnel)
-    echo 1 > /proc/sys/net/ipv4/ip_forward
-    sysctl -w net.ipv4.ip_forward=1 > /dev/null 2>&1 || true
-    # Also make it permanent
-    sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf 2>/dev/null || true
-    grep -q "^net.ipv4.ip_forward" /etc/sysctl.conf 2>/dev/null || echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-    echo -e "${GREEN}✓ IP forwarding enabled${NC}"
+    echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null || true
+    sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
-    echo -e "${CYAN}Configuring iptables rules...${NC}"
-
-    # Load conntrack module (needed before any -m conntrack rule)
     modprobe nf_conntrack 2>/dev/null || true
-
-    # Flush existing rules
     iptables -F 2>/dev/null || true
     iptables -t nat -F 2>/dev/null || true
     iptables -t mangle -F 2>/dev/null || true
     iptables -X 2>/dev/null || true
 
-    # Default: accept all (tunnel server — not an edge firewall)
     iptables -P INPUT ACCEPT
     iptables -P FORWARD ACCEPT
     iptables -P OUTPUT ACCEPT
 
-    # Loopback (required for SSH ↔ DNSTT local communication)
     iptables -A INPUT -i lo -j ACCEPT
     iptables -A OUTPUT -o lo -j ACCEPT
-
-    # Allow established/related (stateful return traffic)
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-    # UDP port 5300 — dnstt-server listener (ACCEPT before any other rule)
     iptables -I INPUT 1 -p udp --dport 5300 -j ACCEPT
-
-    # UDP port 53 — public DNS entry point
     iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT
-
-    # SSH
     iptables -I INPUT 3 -p tcp --dport 22 -j ACCEPT
-
-    # HTTP/HTTPS (for curl/wget inside tunnel and management)
     iptables -A INPUT -p tcp --dport 443 -j ACCEPT
     iptables -A INPUT -p tcp --dport 80 -j ACCEPT
-
-    # NAT: redirect incoming UDP port 53 → dnstt-server on port 5300
-    # This lets clients point at port 53 (standard DNS) without running dnstt as root on 53
     iptables -t nat -I PREROUTING 1 -p udp --dport 53 -j REDIRECT --to-ports 5300
-
-    # CRITICAL FIX: MASQUERADE — rewrites source IP of forwarded tunnel traffic to
-    # the server public IP so that internet replies can route back to the client.
-    # Without this rule the VPN connects but NO traffic passes through (packets
-    # leave the server with a private/tunnel source IP and are dropped by the ISP).
-    iptables -t nat -A POSTROUTING -o "$NET_INTERFACE" -j MASQUERADE
-    echo -e "${GREEN}✓ NAT MASQUERADE enabled on $NET_INTERFACE (traffic can now pass through)${NC}"
-
-    # FORWARD chain: explicitly allow bidirectional traffic through the tunnel
+    iptables -t nat -A POSTROUTING -o "$NET_IF" -j MASQUERADE
     iptables -A FORWARD -i lo -j ACCEPT
     iptables -A FORWARD -o lo -j ACCEPT
     iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -A FORWARD -o "$NET_INTERFACE" -j ACCEPT
-    iptables -A FORWARD -i "$NET_INTERFACE" -j ACCEPT
-    echo -e "${GREEN}✓ FORWARD chain rules added (bidirectional tunnel traffic)${NC}"
+    iptables -A FORWARD -o "$NET_IF" -j ACCEPT
+    iptables -A FORWARD -i "$NET_IF" -j ACCEPT
 
-    echo -e "${GREEN}✓ iptables rules applied${NC}"
-
-    # Tune conntrack for UDP DNS streams
-    echo -e "${CYAN}Tuning connection tracking...${NC}"
-    # Lower UDP timeout — DNS streams are short-lived; don't hold conntrack entries 600s
-    echo 60  > /proc/sys/net/netfilter/nf_conntrack_udp_timeout 2>/dev/null || true
-    echo 120 > /proc/sys/net/netfilter/nf_conntrack_udp_timeout_stream 2>/dev/null || true
-    # Raise max entries to handle burst of parallel DNS queries
-    echo 524288 > /proc/sys/net/netfilter/nf_conntrack_max 2>/dev/null || true
-    echo -e "${GREEN}✓ conntrack: 524K entries | UDP timeout 60s/120s${NC}"
-
-    # Save rules persistently — method depends on Debian version
-    if command -v netfilter-persistent &>/dev/null; then
-        netfilter-persistent save > /dev/null 2>&1 || true
-    fi
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 
-    # On Debian 14 also write an nftables-compatible persistence hook
-    if grep -qiE "trixie|forky|14" /etc/debian_version /etc/os-release 2>/dev/null; then
-        # Create a systemd oneshot that restores iptables rules on boot
-        cat > /etc/systemd/system/iptables-restore-dnstt.service << 'IPTS'
-[Unit]
-Description=Restore DNSTT iptables rules
-Before=network-pre.target
-Wants=network-pre.target
-DefaultDependencies=no
-
-[Service]
-Type=oneshot
-ExecStart=/sbin/iptables-restore /etc/iptables/rules.v4
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-IPTS
-        systemctl daemon-reload
-        systemctl enable iptables-restore-dnstt 2>/dev/null || true
-        echo -e "${GREEN}✓ iptables persistence: systemd restore unit (Debian 14 compatible)${NC}"
-    fi
-
-    echo ""
-    log_success "Firewall configured"
-    echo -e "${CYAN}Open ports + NAT:${NC}"
-    echo -e "  ${GREEN}✓${NC} UDP 53  → redirected to 5300 (public DNS entry)"
-    echo -e "  ${GREEN}✓${NC} UDP 5300 (dnstt-server listener)"
-    echo -e "  ${GREEN}✓${NC} TCP 22  (SSH)"
-    echo -e "  ${GREEN}✓${NC} TCP 80/443 (HTTP/HTTPS)"
-    echo -e "  ${GREEN}✓${NC} NAT MASQUERADE on $NET_INTERFACE (traffic passes through)"
-    echo -e "  ${GREEN}✓${NC} IP forwarding = 1 (tunnel routing active)"
-
-    sleep 2
+    log_success "FIREWALL CONFIGURED"
+    echo -e "  ${GREEN}✓${NC} UDP 53/5300 OPEN | TCP 22/80/443 OPEN | NAT MASQUERADE ON ${NET_IF}"
+    sleep 1
 }
 
-#============================================
+#============================================================
 # KEY GENERATION
-#============================================
-
+#============================================================
 generate_keys() {
-    log_message "${YELLOW}🔑 Generating DNSTT encryption keys...${NC}"
-    echo ""
+    log_message "${YELLOW}🔑 GENERATING DNSTT ENCRYPTION KEYS...${NC}"
 
     if [[ ! -x "$DNSTT_SERVER" ]]; then
-        log_error "dnstt-server binary not found at $DNSTT_SERVER — run build first"
+        log_error "DNSTT-SERVER NOT FOUND. BUILD FIRST."
         return 1
     fi
 
-    cd "$INSTALL_DIR"
+    cd "$INSTALL_DIR" || return 1
     rm -f server.key server.pub
 
-    echo -e "${CYAN}Running: dnstt-server -gen-key ...${NC}"
-    # Show real stderr so we can diagnose failures — do NOT suppress with > /dev/null
     if ! "$DNSTT_SERVER" -gen-key -privkey-file server.key -pubkey-file server.pub; then
-        log_error "Key generation failed. Output above shows the reason."
+        log_error "KEY GENERATION FAILED"
         return 1
     fi
 
-    # Validate both files exist and have content
-    if [[ ! -s "server.key" ]]; then
-        log_error "server.key is empty or missing"
-        return 1
-    fi
-    if [[ ! -s "server.pub" ]]; then
-        log_error "server.pub is empty or missing"
-        return 1
-    fi
-
-    # dnstt public key is base64-encoded 32 bytes = 44 chars (with padding) or 43 without
-    PUBKEY_LEN=$(wc -c < server.pub | tr -d '[:space:]')
-    if [[ "$PUBKEY_LEN" -lt 40 ]]; then
-        log_error "Public key looks invalid (too short: ${PUBKEY_LEN} bytes). Keygen may have silently failed."
-        cat server.pub
+    if [[ ! -s "server.key" ]] || [[ ! -s "server.pub" ]]; then
+        log_error "KEY FILES MISSING OR EMPTY"
         return 1
     fi
 
     chmod 600 server.key
     chmod 644 server.pub
-
-    echo -e "${GREEN}✓ Keys generated successfully${NC}"
-    echo -e "${WHITE}  Public key: ${CYAN}$(cat server.pub)${NC}"
-    log_success "Encryption keys ready"
+    echo -e "${GREEN}✓ KEYS GENERATED${NC}"
+    echo -e "${WHITE}  PUBLIC KEY: ${CYAN}$(cat server.pub)${NC}"
+    log_success "ENCRYPTION KEYS READY"
     sleep 1
     return 0
 }
 
-#============================================
+#============================================================
 # SERVICE CREATION
-#============================================
-
+#============================================================
 create_service() {
     local tunnel_domain=$1
     local mtu=$2
     local ssh_port=$3
-
-    log_message "${YELLOW}📋 Creating systemd service (512B High-Packet-Rate Edition)...${NC}"
-    echo ""
-
-    # Detect vCPU count for GOMAXPROCS (0 is invalid in Go — means 1, not auto)
     local CPU_COUNT
     CPU_COUNT=$(nproc 2>/dev/null || echo "2")
-
-    # Build a single-line ExecStart — systemd backslash-continuation is unreliable
-    # across versions. A single line is always safe.
     local EXEC_LINE="$DNSTT_SERVER -udp :5300 -privkey-file $INSTALL_DIR/server.key -mtu $mtu $tunnel_domain 127.0.0.1:$ssh_port"
 
     cat > /etc/systemd/system/dnstt.service << EOF
 [Unit]
-Description=DNSTT DNS Tunnel Server (512B High-Packet-Rate — MR BLACK KILLER)
-Documentation=https://www.bamsoftware.com/software/dnstt/
+Description=DNSTT DNS TUNNEL SERVER v9.0 — BLACK KILLER
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -1088,25 +603,14 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=$INSTALL_DIR
-
-# Go runtime tuning
-# GOMAXPROCS: number of vCPUs (0 is NOT valid — Go treats it as 1)
-# GODEBUG=netdns=go: pure-Go resolver, avoids cgo DNS latency
-# GOGC=200: GC runs at 2x heap growth instead of default 1x — fewer GC pauses
 Environment="GOMAXPROCS=$CPU_COUNT"
 Environment="GODEBUG=netdns=go"
 Environment="GOGC=200"
-
 ExecStart=$EXEC_LINE
-
 Restart=always
 RestartSec=5
 StandardOutput=append:$LOG_DIR/dnstt-server.log
 StandardError=append:$LOG_DIR/dnstt-error.log
-SyslogIdentifier=dnstt
-
-# I/O: maximum file descriptors (one per DNS stream)
-# Capped at 65536 for VPS compatibility (avoids exceeding system hard limit)
 LimitNOFILE=65536
 LimitNPROC=4096
 
@@ -1114,7 +618,7 @@ LimitNPROC=4096
 WantedBy=multi-user.target
 EOF
 
-    cat > /etc/logrotate.d/dnstt << LOGEOF
+    cat > /etc/logrotate.d/dnstt << EOF
 $LOG_DIR/*.log {
     daily
     rotate 7
@@ -1124,130 +628,87 @@ $LOG_DIR/*.log {
     notifempty
     create 0640 root root
 }
-LOGEOF
+EOF
 
     systemctl daemon-reload
-    systemctl enable dnstt > /dev/null 2>&1
-
-    echo -e "${GREEN}✓ Service created${NC}"
-    log_success "DNSTT Configuration:"
-    log_message "   MTU:          $mtu bytes"
-    log_message "   SSH Port:     $ssh_port"
-    log_message "   UDP Port:     5300"
-    log_message "   GOMAXPROCS:   $CPU_COUNT vCPU(s)"
-    log_message "   GOGC:         200 (reduced GC pause frequency)"
-    log_message "   LimitNOFILE:  1 048 576 FDs"
-    log_message "   Nice:         -15 (high CPU priority)"
-    sleep 2
+    systemctl enable dnstt >/dev/null 2>&1
+    log_success "SERVICE CREATED"
+    sleep 1
 }
 
-#============================================
-# MAIN SETUP
-#============================================
-
+#============================================================
+# MAIN DNSTT SETUP
+#============================================================
 setup_dnstt() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║          DNSTT ULTRA v2.0 INSTALLATION               ║${NC}"
-    echo -e "${CYAN}║               SSH OPTIMIZED EDITION                   ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "⚡ DNSTT ULTRA v2.0 INSTALLATION — BLACK KILLER ⚡"
+    dsep
     echo ""
-    
+
     if systemctl is-active --quiet dnstt 2>/dev/null; then
-        echo -e "${YELLOW}⚠️  DNSTT is already running${NC}"
+        echo -e "${YELLOW}⚠ DNSTT IS ALREADY RUNNING${NC}"
         echo ""
-        read -p "Reinstall? (y/n): " reinstall
-        if [[ "$reinstall" != "y" ]]; then
-            return
-        fi
+        read -rp "REINSTALL? [y/n]: " reinstall
+        [[ "$reinstall" != "y" ]] && return
         systemctl stop dnstt
         rm -f "$INSTALL_DIR/ns_domain.txt" "$INSTALL_DIR/tunnel_domain.txt"
     fi
-    
-    echo -e "${CYAN}Starting installation...${NC}"
-    echo ""
-    
-    if ! install_dependencies; then
-        log_error "Failed: Dependencies"
-        press_enter
-        return 1
-    fi
-    
-    if ! install_golang; then
-        log_error "Failed: Go installation"
-        press_enter
-        return 1
-    fi
-    
-    if ! build_dnstt; then
-        log_error "Failed: DNSTT build"
-        press_enter
-        return 1
-    fi
-    
+
+    install_dependencies || { log_error "DEPENDENCIES FAILED"; press_enter; return 1; }
+    install_golang       || { log_error "GO INSTALLATION FAILED"; press_enter; return 1; }
+    build_dnstt          || { log_error "DNSTT BUILD FAILED"; press_enter; return 1; }
+
     optimize_system_ultra
     optimize_ssh_server
     configure_firewall
-    
-    # Domain configuration
+
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}            DOMAIN CONFIGURATION${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    dtitle "DOMAIN CONFIGURATION"
+    dsep
     echo ""
-    echo -e "${WHITE}Enter your nameserver domain:${NC}"
-    echo -e "${CYAN}Example: ns.yourdomain.com${NC}"
-    echo -e "${YELLOW}Default: ns.slowdns.local${NC}"
+    echo -e "${WHITE}ENTER YOUR NAMESERVER DOMAIN:${NC}"
+    echo -e "${CYAN}EXAMPLE: ns.yourdomain.com${NC}"
+    echo -e "${YELLOW}DEFAULT: ns.slowdns.local${NC}"
     echo ""
-    read -p "Nameserver: " ns_domain
+    read -rp "NAMESERVER: " ns_domain
     ns_domain=${ns_domain:-ns.slowdns.local}
-    
+
     echo ""
-    echo -e "${WHITE}Enter your tunnel domain:${NC}"
-    echo -e "${CYAN}Example: tunnel.yourdomain.com${NC}"
+    echo -e "${WHITE}ENTER YOUR TUNNEL DOMAIN:${NC}"
+    echo -e "${CYAN}EXAMPLE: tunnel.yourdomain.com${NC}"
     echo ""
-    read -p "Tunnel domain: " tunnel_domain
-    
+    read -rp "TUNNEL DOMAIN: " tunnel_domain
+
     if [[ -z "$tunnel_domain" ]]; then
         base_domain=$(echo "$ns_domain" | awk -F. '{print $(NF-1)"."$NF}')
         tunnel_domain="t.${base_domain}"
     fi
-    
-    tunnel_domain=$(echo "$tunnel_domain" | sed 's/\.\.*/./g' | sed 's/\.$//')
-    
+
+    tunnel_domain=$(echo "$tunnel_domain" | sed 's/\.\.*/./g; s/\.$//')
     echo "$ns_domain" > "$INSTALL_DIR/ns_domain.txt"
     echo "$tunnel_domain" > "$INSTALL_DIR/tunnel_domain.txt"
-    
-    log_success "NS Domain: $ns_domain"
-    log_success "Tunnel Domain: $tunnel_domain"
-    
+
+    log_success "NS DOMAIN: $ns_domain"
+    log_success "TUNNEL DOMAIN: $tunnel_domain"
+
+    generate_keys || { log_error "KEY GENERATION FAILED"; press_enter; return 1; }
+
     echo ""
-    if ! generate_keys; then
-        log_error "Failed: Key generation"
-        press_enter
-        return 1
-    fi
-    
-    # MTU Configuration
+    dtitle "MTU CONFIGURATION"
+    dsep
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${YELLOW}         MTU CONFIGURATION (ULTRA v2 Optimized)${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "  ${CYAN}1)${NC} 512   — CLASSIC DNS ${GREEN}✓ MOST COMPATIBLE${NC}"
+    echo -e "  ${CYAN}2)${NC} 1024  — STANDARD"
+    echo -e "  ${CYAN}3)${NC} 1232  — EDNS0 STANDARD"
+    echo -e "  ${CYAN}4)${NC} 1280  — HIGH SPEED ${GREEN}⭐${NC}"
+    echo -e "  ${CYAN}5)${NC} 1420  — VERY HIGH SPEED ${GREEN}⭐⭐ BEST FOR SSH${NC}"
+    echo -e "  ${CYAN}6)${NC} 4096  — EDNS0 MAXIMUM ${YELLOW}⚡ ULTRA${NC}"
+    echo -e "  ${YELLOW}7)${NC} CUSTOM"
     echo ""
-    echo -e "${WHITE}Select MTU size:${NC}"
+    echo -e "${YELLOW}RECOMMENDED: OPTION 5 (1420) FOR MAXIMUM SSH SPEED${NC}"
     echo ""
-    echo -e "  ${CYAN}1)${NC} 512   - Classic DNS ${GREEN}✓ Most Compatible${NC}"
-    echo -e "  ${CYAN}2)${NC} 1024  - Standard"
-    echo -e "  ${CYAN}3)${NC} 1232  - EDNS0 Standard"
-    echo -e "  ${CYAN}4)${NC} 1280  - High Speed ${GREEN}⭐ Recommended${NC}"
-    echo -e "  ${CYAN}5)${NC} 1420  - Very High Speed ${GREEN}⭐⭐ Best for SSH${NC}"
-    echo -e "  ${CYAN}6)${NC} 4096  - EDNS0 Maximum ${YELLOW}⚡ ULTRA (experimental)${NC}"
-    echo -e "  ${YELLOW}7)${NC} ${YELLOW}CUSTOM - Enter your own${NC}"
-    echo ""
-    echo -e "${YELLOW}💡 Recommended: Option 5 (1420) for maximum SSH speed${NC}"
-    echo ""
-    read -p "Choice [1-7, default=5]: " mtu_choice
-    
+    read -rp "CHOICE [1-7, default=5]: " mtu_choice
+
     case ${mtu_choice:-5} in
         1) MTU=512 ;;
         2) MTU=1024 ;;
@@ -1256,252 +717,158 @@ setup_dnstt() {
         5) MTU=1420 ;;
         6) MTU=4096 ;;
         7)
-            echo ""
-            echo -e "${YELLOW}Enter custom MTU (64-4096):${NC}"
-            read -p "MTU: " custom_mtu
+            read -rp "ENTER CUSTOM MTU (64-4096): " custom_mtu
             if [[ "$custom_mtu" =~ ^[0-9]+$ ]] && [ "$custom_mtu" -ge 64 ] && [ "$custom_mtu" -le 4096 ]; then
                 MTU=$custom_mtu
-                log_success "Custom MTU: $MTU"
             else
-                log_error "Invalid MTU, using 512"
+                log_error "INVALID MTU, USING 512"
                 MTU=512
             fi
             ;;
         *) MTU=1420 ;;
     esac
-    
-    echo "$MTU" > "$INSTALL_DIR/mtu.txt"
-    log_success "MTU: $MTU bytes"
 
-    # Apply 512B-specific optimizations when MTU is at or below 512
-    # These settings shift the kernel from "big packet / high bandwidth" mode
-    # to "high packet-count / low latency" mode — the critical fix for the
-    # 300 kbps ceiling caused by UDP socket drops and NAPI starvation.
-    if [ "$MTU" -le 512 ]; then
-        echo ""
-        echo -e "${YELLOW}━━━ MTU ≤ 512: activating High-Frequency Small-Packet mode ━━━${NC}"
-        optimize_for_512
-    fi
-    
+    echo "$MTU" > "$INSTALL_DIR/mtu.txt"
+    log_success "MTU: $MTU BYTES"
+
+    [[ "$MTU" -le 512 ]] && optimize_for_512
+
     SSH_PORT=$(ss -tlnp 2>/dev/null | grep sshd | awk '{print $4}' | cut -d: -f2 | head -1)
     SSH_PORT=${SSH_PORT:-22}
     echo "$SSH_PORT" > "$INSTALL_DIR/ssh_port.txt"
-    log_message "SSH Port: $SSH_PORT"
-    
-    echo ""
+
     create_service "$tunnel_domain" "$MTU" "$SSH_PORT"
-    
+
     echo ""
-    echo -e "${CYAN}🚀 Starting DNSTT service...${NC}"
+    echo -e "${CYAN}🚀 STARTING DNSTT SERVICE...${NC}"
     systemctl start dnstt
     sleep 3
-    
-    if systemctl is-active --quiet dnstt; then
-        log_success "Service started successfully"
-    else
-        log_error "Service failed to start"
-        echo ""
+
+    if ! systemctl is-active --quiet dnstt; then
+        log_error "SERVICE FAILED TO START"
         journalctl -u dnstt -n 20 --no-pager
         press_enter
         return 1
     fi
-    
+
     PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || echo "YOUR_SERVER_IP")
     PUBKEY=$(cat "$INSTALL_DIR/server.pub")
-    
+
     echo ""
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║            ✅ INSTALLATION COMPLETE! ✅              ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dbox_top
+    echo -e "${BGREEN}             ✅ INSTALLATION COMPLETE! ✅${NC}"
+    dbox_bot
     echo ""
-    echo -e "${CYAN}━━━━━━━━━━━ CONNECTION DETAILS ━━━━━━━━━━━${NC}"
-    echo ""
-    echo -e "${WHITE}🌐 Server IP:${NC}       ${YELLOW}$PUBLIC_IP${NC}"
-    echo -e "${WHITE}🔗 NS Domain:${NC}       ${YELLOW}$ns_domain${NC}"
-    echo -e "${WHITE}🔗 Tunnel Domain:${NC}   ${YELLOW}$tunnel_domain${NC}"
-    echo -e "${WHITE}🔑 Public Key:${NC}"
-    echo -e "${YELLOW}$PUBKEY${NC}"
-    echo -e "${WHITE}🚪 SSH Port:${NC}        ${YELLOW}$SSH_PORT${NC}"
-    echo -e "${WHITE}📊 MTU:${NC}             ${YELLOW}$MTU bytes${NC}"
-    echo -e "${WHITE}⚡ Expected Speed:${NC}  ${GREEN}2–4 Mbps at 512B MTU 🚀${NC}"
-    echo ""
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    dsep
+    echo -e "  ${WHITE}🌐 SERVER IP     :${NC} ${YELLOW}$PUBLIC_IP${NC}"
+    echo -e "  ${WHITE}🔗 NS DOMAIN     :${NC} ${YELLOW}$ns_domain${NC}"
+    echo -e "  ${WHITE}🔗 TUNNEL DOMAIN :${NC} ${YELLOW}$tunnel_domain${NC}"
+    echo -e "  ${WHITE}🔑 PUBLIC KEY    :${NC}"
+    echo -e "     ${CYAN}$PUBKEY${NC}"
+    echo -e "  ${WHITE}🚪 SSH PORT      :${NC} ${YELLOW}$SSH_PORT${NC}"
+    echo -e "  ${WHITE}📊 MTU           :${NC} ${YELLOW}$MTU BYTES${NC}"
+    dsep
     echo ""
     echo -e "${YELLOW}📋 DNS RECORDS:${NC}"
+    echo -e "  ${GREEN}A RECORD :${NC}  $ns_domain → $PUBLIC_IP"
+    echo -e "  ${GREEN}NS RECORD:${NC}  $tunnel_domain → $ns_domain"
     echo ""
-    echo -e "${GREEN}A Record:${NC}  $ns_domain → $PUBLIC_IP"
-    echo -e "${GREEN}NS Record:${NC} $tunnel_domain → $ns_domain"
+    echo -e "${YELLOW}📱 CLIENT COMMAND:${NC}"
+    echo -e "${GREEN}DIRECT UDP:${NC}"
+    echo -e "  dnstt-client -udp $PUBLIC_IP:5300 \\"
+    echo -e "    -pubkey $PUBKEY \\"
+    echo -e "    -mtu $MTU \\"
+    echo -e "    $tunnel_domain 127.0.0.1:$SSH_PORT"
     echo ""
-    echo -e "${YELLOW}📱 CLIENT COMMAND (Direct UDP - FASTEST):${NC}"
-    echo ""
-    echo -e "${GREEN}Direct UDP:${NC}"
-    echo -e "${WHITE}dnstt-client -udp $PUBLIC_IP:5300 \\${NC}"
-    echo -e "${WHITE}  -pubkey $PUBKEY \\${NC}"
-    echo -e "${WHITE}  -mtu $MTU \\${NC}"
-    echo -e "${WHITE}  $tunnel_domain 127.0.0.1:$SSH_PORT${NC}"
-    echo ""
-    echo -e "${CYAN}Alternative (DoH):${NC}"
-    echo -e "${WHITE}dnstt-client -doh https://cloudflare-dns.com/dns-query \\${NC}"
-    echo -e "${WHITE}  -pubkey $PUBKEY \\${NC}"
-    echo -e "${WHITE}  -mtu $MTU \\${NC}"
-    echo -e "${WHITE}  $tunnel_domain 127.0.0.1:$SSH_PORT${NC}"
-    echo ""
-    echo -e "${YELLOW}💡 SSH Connection:${NC}"
-    echo -e "${WHITE}   After starting dnstt-client:${NC}"
-    echo -e "${WHITE}   ssh username@127.0.0.1 -p $SSH_PORT${NC}"
-    echo ""
-    echo -e "${YELLOW}💡 ULTRA v2 OPTIMIZATIONS ACTIVE:${NC}"
-    echo -e "   ${GREEN}✓${NC} BBR v2 + FQ-CoDel congestion control"
-    echo -e "   ${GREEN}✓${NC} 1GB network buffers (2x faster)"
-    echo -e "   ${GREEN}✓${NC} 512KB UDP buffers (EDNS0++)"
-    echo -e "   ${GREEN}✓${NC} SSH server optimized (fastest ciphers)"
-    echo -e "   ${GREEN}✓${NC} Zero-copy + offloading"
-    echo -e "   ${GREEN}✓${NC} MTU $MTU (optimized for SSH)"
-    echo -e "   ${GREEN}✓${NC} 8M connection tracking"
-    echo -e "   ${GREEN}✓${NC} 300K packet backlog (zero loss)"
-    echo ""
-    
-    # Save info
-    cat > "$INSTALL_DIR/connection_info.txt" << EOF
-╔═══════════════════════════════════════════════════════╗
-║      DNSTT ULTRA v2.0 - SSH OPTIMIZED EDITION        ║
-║           Created By MR BLACK KILLER              ║
-╚═══════════════════════════════════════════════════════╝
 
+    cat > "$INSTALL_DIR/connection_info.txt" << EOF
+BLACK KILLER SSH TUNNEL MANAGER v9.0
 Generated: $(date)
 
-SERVER DETAILS:
-═══════════════
-IP:             $PUBLIC_IP
-NS Domain:      $ns_domain
-Tunnel Domain:  $tunnel_domain
-SSH Port:       $SSH_PORT
+SERVER IP:      $PUBLIC_IP
+NS DOMAIN:      $ns_domain
+TUNNEL DOMAIN:  $tunnel_domain
+SSH PORT:       $SSH_PORT
 MTU:            $MTU bytes
-Expected Speed: 10-25 Mbps
-
-PUBLIC KEY:
-═══════════
-$PUBKEY
+PUBLIC KEY:     $PUBKEY
 
 DNS RECORDS:
-════════════
-A    $ns_domain         $PUBLIC_IP
-NS   $tunnel_domain     $ns_domain
+A    $ns_domain   $PUBLIC_IP
+NS   $tunnel_domain  $ns_domain
 
-ULTRA SPEED CLIENT COMMANDS:
-═════════════════════════════
-# Direct UDP (FASTEST - Recommended)
+CLIENT COMMAND (DIRECT UDP):
 dnstt-client -udp $PUBLIC_IP:5300 -pubkey $PUBKEY -mtu $MTU $tunnel_domain 127.0.0.1:$SSH_PORT
 
-# Cloudflare DoH
+CLIENT COMMAND (CLOUDFLARE DOH):
 dnstt-client -doh https://cloudflare-dns.com/dns-query -pubkey $PUBKEY -mtu $MTU $tunnel_domain 127.0.0.1:$SSH_PORT
-
-# Google DoH
-dnstt-client -doh https://dns.google/dns-query -pubkey $PUBKEY -mtu $MTU $tunnel_domain 127.0.0.1:$SSH_PORT
-
-SSH CONNECTION:
-═══════════════
-After starting dnstt-client, connect:
-ssh username@127.0.0.1 -p $SSH_PORT
-
-ULTRA v2 OPTIMIZATIONS:
-════════════════════════
-✓ BBR v2 + FQ-CoDel (next-gen congestion control)
-✓ 1GB Network Buffers (double speed)
-✓ 512KB UDP Buffers (EDNS0++ support)
-✓ 300K Packet Backlog (zero packet loss)
-✓ 8M Connection Tracking (unlimited connections)
-✓ SSH Server Optimized (fastest ciphers)
-✓ Zero-Copy + Offloading enabled
-✓ Realtime CPU Priority (FIFO 99)
-✓ I/O Realtime Priority
-✓ TCP Bulk Transfer Optimization
-✓ 2M File Descriptors (ultra parallel)
-✓ MTU $MTU (optimized for your network)
-
-LOGS:
-══════
-Server: $LOG_DIR/dnstt-server.log
-Error:  $LOG_DIR/dnstt-error.log
-Main:   $LOG_DIR/dnstt.log
-
-Created By MR BLACK KILLER
 EOF
-    
-    log_success "Info saved: $INSTALL_DIR/connection_info.txt"
+
+    log_success "INFO SAVED: $INSTALL_DIR/connection_info.txt"
     press_enter
 }
 
-#============================================
+#============================================================
 # SSH USER MANAGEMENT
-#============================================
+#============================================================
+
+# Field layout in USER_DB:
+# 1:user | 2:pass | 3:expiry | 4:created | 5:gb_limit | 6:status | 7:ar_days | 8:ar_trigger | 9:conn_limit
 
 add_ssh_user() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                  ADD SSH USER                        ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "👤 ADD NEW SSH USER"
+    dsep
     echo ""
-    
-    read -p "Username: " username
-    
-    if [[ -z "$username" ]]; then
-        log_error "Username required"
-        press_enter
-        return
-    fi
-    
+
+    read -rp "USERNAME: " username
+    [[ -z "$username" ]] && { log_error "USERNAME REQUIRED"; press_enter; return; }
+
     if id "$username" &>/dev/null; then
-        log_error "User already exists"
+        log_error "USER ALREADY EXISTS"
         press_enter
         return
     fi
-    
-    read -sp "Password: " password
+
+    read -rsp "PASSWORD: " password; echo ""
+    [[ -z "$password" ]] && { log_error "PASSWORD REQUIRED"; press_enter; return; }
+
     echo ""
-    
-    if [[ -z "$password" ]]; then
-        log_error "Password required"
-        press_enter
-        return
-    fi
-    
+    echo -e "${YELLOW}SELECT EXPIRATION PERIOD:${NC}"
     echo ""
-    echo -e "${YELLOW}Select expiration:${NC}"
+    echo -e "  ${CYAN}1)${NC} 1 DAY"
+    echo -e "  ${CYAN}2)${NC} 7 DAYS"
+    echo -e "  ${CYAN}3)${NC} 30 DAYS ${GREEN}⭐${NC}"
+    echo -e "  ${CYAN}4)${NC} 90 DAYS"
+    echo -e "  ${CYAN}5)${NC} 365 DAYS"
     echo ""
-    echo -e "  ${CYAN}1)${NC} 1 Day"
-    echo -e "  ${CYAN}2)${NC} 7 Days"
-    echo -e "  ${CYAN}3)${NC} 30 Days ${GREEN}⭐${NC}"
-    echo -e "  ${CYAN}4)${NC} 90 Days"
-    echo -e "  ${CYAN}5)${NC} 365 Days"
-    echo ""
-    read -p "Choice [1-5, default=3]: " exp_choice
-    
+    read -rp "CHOICE [1-5, default=3]: " exp_choice
+
     case ${exp_choice:-3} in
-        1) days=1 ;;
-        2) days=7 ;;
-        3) days=30 ;;
-        4) days=90 ;;
-        5) days=365 ;;
-        *) days=30 ;;
+        1) days=1 ;;   2) days=7 ;;
+        3) days=30 ;;  4) days=90 ;;
+        5) days=365 ;; *) days=30 ;;
     esac
 
     echo ""
-    echo -e "${YELLOW}Data Limit (GB) — 0 = Unlimited:${NC}"
-    read -p "GB Limit [default=0]: " gb_input
+    echo -e "${YELLOW}DATA LIMIT IN GB (0 = UNLIMITED):${NC}"
+    read -rp "GB LIMIT [default=0]: " gb_input
     gb_limit=${gb_input:-0}
-    if ! [[ "$gb_limit" =~ ^[0-9]+$ ]]; then
-        gb_limit=0
-    fi
+    [[ ! "$gb_limit" =~ ^[0-9]+$ ]] && gb_limit=0
 
     echo ""
-    echo -e "${YELLOW}Auto-Renew — Iongeze siku automatically kabla haija-expire:${NC}"
-    echo -e "  ${CYAN}1)${NC} Hapana (Manual renew)"
-    echo -e "  ${CYAN}2)${NC} Renew siku 1 kabla haija-expire (sama na period ya awali)"
-    echo -e "  ${CYAN}3)${NC} Renew siku 3 kabla haija-expire"
-    echo -e "  ${CYAN}4)${NC} Renew siku 7 kabla haija-expire"
+    echo -e "${YELLOW}CONNECTION LIMIT (SIMULTANEOUS LOGINS, 0 = UNLIMITED):${NC}"
+    read -rp "CONN LIMIT [default=0]: " conn_input
+    conn_limit=${conn_input:-0}
+    [[ ! "$conn_limit" =~ ^[0-9]+$ ]] && conn_limit=0
+
     echo ""
-    read -p "Choice [1-4, default=1]: " ar_choice
+    echo -e "${YELLOW}AUTO-RENEW SETTINGS:${NC}"
+    echo -e "  ${CYAN}1)${NC} DISABLED (MANUAL RENEW)"
+    echo -e "  ${CYAN}2)${NC} RENEW 1 DAY BEFORE EXPIRY"
+    echo -e "  ${CYAN}3)${NC} RENEW 3 DAYS BEFORE EXPIRY"
+    echo -e "  ${CYAN}4)${NC} RENEW 7 DAYS BEFORE EXPIRY"
+    echo ""
+    read -rp "CHOICE [1-4, default=1]: " ar_choice
     case ${ar_choice:-1} in
         2) auto_renew_days=$days; ar_trigger=1 ;;
         3) auto_renew_days=$days; ar_trigger=3 ;;
@@ -1510,235 +877,183 @@ add_ssh_user() {
     esac
 
     echo ""
-    echo -e "${CYAN}Creating user...${NC}"
-    
+    echo -e "${CYAN}CREATING USER...${NC}"
+
     useradd -m -s /bin/bash "$username" 2>/dev/null
     echo "$username:$password" | chpasswd 2>/dev/null
-    
+
     exp_date=$(date -d "+$days days" +"%Y-%m-%d")
     chage -E "$exp_date" "$username" 2>/dev/null
 
-    echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")|$gb_limit|active|$auto_renew_days|$ar_trigger" >> "$USER_DB"
+    echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")|$gb_limit|active|$auto_renew_days|$ar_trigger|$conn_limit" >> "$USER_DB"
 
     setup_user_quota "$username" "$gb_limit"
+    [[ "$conn_limit" -gt 0 ]] && echo "$conn_limit" > "$LIMITER_DIR/$username"
     update_motd_script
 
-    echo -e "${GREEN}✓ User created${NC}"
+    PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || echo "YOUR_SERVER_IP")
+    PUBKEY=$(cat "$INSTALL_DIR/server.pub" 2>/dev/null || echo "N/A")
+
     echo ""
-    log_success "SSH User Created!"
+    dbox_top
+    echo -e "${BGREEN}           USER CREATED SUCCESSFULLY${NC}"
+    dbox_bot
     echo ""
-    echo -e "  ${WHITE}👤 Username:${NC} ${GREEN}$username${NC}"
-    echo -e "  ${WHITE}🔐 Password:${NC} ${GREEN}$password${NC}"
-    echo -e "  ${WHITE}📅 Expires:${NC}  ${YELLOW}$exp_date${NC}"
-    echo -e "  ${WHITE}⏳ Valid:${NC}    ${GREEN}$days days${NC}"
-    if [[ "$gb_limit" -gt 0 ]]; then
-        echo -e "  ${WHITE}📶 GB Limit:${NC} ${CYAN}${gb_limit} GB${NC}"
-    else
-        echo -e "  ${WHITE}📶 GB Limit:${NC} ${GREEN}Unlimited${NC}"
-    fi
-    if [[ "$auto_renew_days" -gt 0 ]]; then
-        echo -e "  ${WHITE}🔄 Auto-Renew:${NC} ${GREEN}${auto_renew_days} siku (trigger: ${ar_trigger}d kabla)${NC}"
-    else
-        echo -e "  ${WHITE}🔄 Auto-Renew:${NC} ${YELLOW}Disabled${NC}"
-    fi
-    echo ""
-    
+    echo -e "  ${WHITE}SERVER IP      :${NC} ${YELLOW}$PUBLIC_IP${NC}"
+    echo -e "  ${WHITE}USER           :${NC} ${GREEN}$username${NC}"
+    echo -e "  ${WHITE}PASSWORD       :${NC} ${GREEN}$password${NC}"
+    echo -e "  ${WHITE}DURATION       :${NC} ${CYAN}$days DAYS${NC}"
+    echo -e "  ${WHITE}CONN LIMIT     :${NC} ${CYAN}$([ "$conn_limit" -eq 0 ] && echo UNLIMITED || echo $conn_limit)${NC}"
+    echo -e "  ${WHITE}DATA LIMIT     :${NC} ${CYAN}$([ "$gb_limit" -eq 0 ] && echo UNLIMITED || echo "${gb_limit} GB")${NC}"
+    echo -e "  ${WHITE}EXPIRY DATE    :${NC} ${YELLOW}$exp_date${NC}"
+    echo -e "  ${WHITE}PUBLIC KEY     :${NC} ${CYAN}$PUBKEY${NC}"
+    dbox_bot
     press_enter
 }
 
 delete_ssh_user() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                 DELETE SSH USER                      ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "🗑️  DELETE SSH USER"
+    dsep
     echo ""
-    
-    read -p "Username to delete: " username
-    
+
+    read -rp "USERNAME TO DELETE: " username
     if ! id "$username" &>/dev/null; then
-        log_error "User not found"
+        log_error "USER NOT FOUND"
         press_enter
         return
     fi
-    
+
     echo ""
-    echo -e "${RED}⚠️  WARNING: You are about to DELETE user: $username${NC}"
+    echo -e "${RED}⚠ WARNING: YOU ARE ABOUT TO DELETE USER: $username${NC}"
     echo ""
-    read -p "Type 'yes' to confirm: " confirm
-    
-    if [[ "$confirm" != "yes" ]]; then
-        echo -e "${YELLOW}Deletion cancelled${NC}"
-        press_enter
-        return
-    fi
-    
-    echo ""
-    echo -e "${CYAN}Deleting user...${NC}"
-    
+    read -rp "TYPE 'yes' TO CONFIRM: " confirm
+    [[ "$confirm" != "yes" ]] && { echo -e "${YELLOW}DELETION CANCELLED${NC}"; press_enter; return; }
+
     pkill -u "$username" 2>/dev/null || true
     userdel -r "$username" 2>/dev/null || true
     sed -i "/^$username|/d" "$USER_DB"
-
     iptables -D OUTPUT -m owner --uid-owner "$username" -j "slowdns_$username" 2>/dev/null || true
     iptables -F "slowdns_$username" 2>/dev/null || true
     iptables -X "slowdns_$username" 2>/dev/null || true
-    rm -f "$USAGE_DIR/$username"
-
+    rm -f "$USAGE_DIR/$username" "$LIMITER_DIR/$username"
     update_motd_script
-    
-    echo -e "${GREEN}✓ User deleted${NC}"
-    log_success "User $username removed"
-    
+
+    echo -e "${GREEN}✓ USER $username DELETED${NC}"
+    log_success "USER $username REMOVED"
     press_enter
 }
 
 list_ssh_users() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                        SSH USERS                                 ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════════╝${NC}"
+    dtitle "👥 SSH USERS LIST"
+    dsep
     echo ""
 
     if [[ ! -s "$USER_DB" ]]; then
-        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "            ${YELLOW}No users found${NC}"
-        echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    else
-        printf "${CYAN}╔${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}┬${NC}${WHITE}%-9s${NC}${CYAN}┬${NC}${WHITE}%-14s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}╗${NC}\n" \
-            " USERNAME" " PASSWORD" " EXPIRES" " DAYS" " DATA USED/LIMIT" " STATUS" " LOCK"
-        echo -e "${CYAN}╠════════════╪════════════╪══════════╪═════════╪══════════════╪══════════╪══════════╣${NC}"
-
-        local user_count=0
-        local active_count=0
-
-        while IFS='|' read -r user pass exp created gb_limit acc_status; do
-            [[ -z "$user" ]] && continue
-            user_count=$((user_count + 1))
-
-            gb_limit=${gb_limit:-0}
-            acc_status=${acc_status:-active}
-
-            current=$(date +%s)
-            exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
-            days_left=$(( (exp_unix - current) / 86400 ))
-
-            if [[ "$acc_status" == "locked" ]]; then
-                exp_status="${RED}● LOCKED${NC}"
-                days_display="${RED}-${NC}"
-            elif [[ $current -gt $exp_unix ]]; then
-                exp_status="${RED}● EXPIRED${NC}"
-                days_display="${RED}0${NC}"
-            elif [[ $days_left -le 3 ]]; then
-                exp_status="${RED}● EXPIRING${NC}"
-                days_display="${RED}$days_left${NC}"
-            elif [[ $days_left -le 7 ]]; then
-                exp_status="${YELLOW}● WARN${NC}"
-                days_display="${YELLOW}$days_left${NC}"
-            else
-                exp_status="${GREEN}● ACTIVE${NC}"
-                days_display="${GREEN}$days_left${NC}"
-                active_count=$((active_count + 1))
-            fi
-
-            usage_gb=$(get_user_usage_gb "$user")
-            if [[ "$gb_limit" -gt 0 ]]; then
-                if (( $(echo "$usage_gb >= $gb_limit" | bc -l 2>/dev/null || echo 0) )); then
-                    data_display="${RED}${usage_gb}/${gb_limit}GB${NC}"
-                else
-                    data_display="${CYAN}${usage_gb}/${gb_limit}GB${NC}"
-                fi
-            else
-                data_display="${GREEN}${usage_gb}/∞${NC}"
-            fi
-
-            lock_display="${GREEN}OPEN${NC}"
-            [[ "$acc_status" == "locked" ]] && lock_display="${RED}LOCK${NC}"
-
-            printf "${CYAN}║${NC} %-10s ${CYAN}│${NC} %-10s ${CYAN}│${NC} %-8s ${CYAN}│${NC} " "$user" "$pass" "$exp"
-            echo -ne "$days_display"
-            printf " ${CYAN}│${NC} "
-            echo -ne "$data_display"
-            printf " ${CYAN}│${NC} "
-            echo -ne "$exp_status"
-            printf " ${CYAN}│${NC} "
-            echo -e "$lock_display ${CYAN}║${NC}"
-
-        done < "$USER_DB"
-
-        echo -e "${CYAN}╚════════════╧════════════╧══════════╧═════════╧══════════════╧══════════╧══════════╝${NC}"
-        echo ""
-        echo -e "${CYAN}Total: ${WHITE}$user_count${NC}  |  ${GREEN}Active: $active_count${NC}  |  ${RED}Expired/Locked: $((user_count - active_count))${NC}"
+        echo -e "${YELLOW}NO USERS FOUND${NC}"
+        press_enter
+        return
     fi
 
+    printf "${CYAN}╔${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}┬${NC}${WHITE}%-7s${NC}${CYAN}┬${NC}${WHITE}%-14s${NC}${CYAN}┬${NC}${WHITE}%-8s${NC}${CYAN}┬${NC}${WHITE}%-8s${NC}${CYAN}╗${NC}\n" \
+        " USERNAME" " PASSWORD" " EXPIRES" " DAYS" " DATA USED/LIMIT" " STATUS" " CONN"
+    echo -e "${CYAN}╠════════════╪════════════╪══════════╪═══════╪══════════════╪════════╪════════╣${NC}"
+
+    local user_count=0 active_count=0
+
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger conn_limit; do
+        [[ -z "$user" ]] && continue
+        user_count=$((user_count + 1))
+        gb_limit=${gb_limit:-0}
+        acc_status=${acc_status:-active}
+        conn_limit=${conn_limit:-0}
+
+        local current exp_unix days_left
+        current=$(date +%s)
+        exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo 0)
+        days_left=$(( (exp_unix - current) / 86400 ))
+
+        if [[ "$acc_status" == "locked" ]]; then
+            exp_status="${RED}LOCKED${NC}"; days_display="${RED}-${NC}"
+        elif [[ $current -gt $exp_unix ]]; then
+            exp_status="${RED}EXPIRED${NC}"; days_display="${RED}0${NC}"
+        elif [[ $days_left -le 3 ]]; then
+            exp_status="${RED}EXPIRING${NC}"; days_display="${RED}$days_left${NC}"
+        elif [[ $days_left -le 7 ]]; then
+            exp_status="${YELLOW}WARN${NC}"; days_display="${YELLOW}$days_left${NC}"
+        else
+            exp_status="${GREEN}ACTIVE${NC}"; days_display="${GREEN}$days_left${NC}"
+            active_count=$((active_count + 1))
+        fi
+
+        local usage_gb
+        usage_gb=$(get_user_usage_gb "$user")
+        if [[ "$gb_limit" -gt 0 ]]; then
+            data_display="${CYAN}${usage_gb}/${gb_limit}GB${NC}"
+        else
+            data_display="${GREEN}${usage_gb}/∞${NC}"
+        fi
+
+        local conn_display
+        conn_display="$([ "$conn_limit" -eq 0 ] && echo "${GREEN}∞${NC}" || echo "${CYAN}${conn_limit}${NC}")"
+
+        printf "${CYAN}║${NC} %-10s ${CYAN}│${NC} %-10s ${CYAN}│${NC} %-8s ${CYAN}│${NC} " "$user" "$pass" "$exp"
+        echo -ne "$days_display"
+        printf " ${CYAN}│${NC} "
+        echo -ne "$data_display"
+        printf " ${CYAN}│${NC} "
+        echo -ne "$exp_status"
+        printf " ${CYAN}│${NC} "
+        echo -e "$conn_display ${CYAN}║${NC}"
+    done < "$USER_DB"
+
+    echo -e "${CYAN}╚════════════╧════════════╧══════════╧═══════╧══════════════╧════════╧════════╝${NC}"
+    echo ""
+    echo -e "  ${CYAN}TOTAL: ${WHITE}$user_count${NC}  |  ${GREEN}ACTIVE: $active_count${NC}  |  ${RED}EXPIRED/LOCKED: $((user_count - active_count))${NC}"
     press_enter
 }
 
-#============================================
-# SSH USER QUOTA HELPERS
-#============================================
-
+#============================================================
+# QUOTA HELPERS
+#============================================================
 setup_user_quota() {
     local username="$1"
     local gb_limit="$2"
-
     local uid
     uid=$(id -u "$username" 2>/dev/null) || return
-
     iptables -N "slowdns_$username" 2>/dev/null || iptables -F "slowdns_$username" 2>/dev/null
     iptables -C OUTPUT -m owner --uid-owner "$uid" -j "slowdns_$username" 2>/dev/null || \
         iptables -I OUTPUT -m owner --uid-owner "$uid" -j "slowdns_$username" 2>/dev/null
     iptables -A "slowdns_$username" -j RETURN 2>/dev/null
-
-    if [[ "$gb_limit" -gt 0 ]]; then
-        echo "0" > "$USAGE_DIR/$username"
-    else
-        echo "0" > "$USAGE_DIR/$username"
-    fi
+    echo "0" > "$USAGE_DIR/$username"
 }
 
 get_user_usage_gb() {
     local username="$1"
-    local bytes=0
-
-    local chain="slowdns_$username"
-    local raw
-    raw=$(iptables -L "$chain" -xvn 2>/dev/null | awk 'NR==3{print $2}')
+    local bytes=0 raw saved total
+    raw=$(iptables -L "slowdns_$username" -xvn 2>/dev/null | awk 'NR==3{print $2}')
     [[ "$raw" =~ ^[0-9]+$ ]] && bytes=$raw
-
-    local saved=0
+    saved=0
     [[ -f "$USAGE_DIR/$username" ]] && saved=$(cat "$USAGE_DIR/$username" 2>/dev/null)
     [[ "$saved" =~ ^[0-9]+$ ]] || saved=0
-
-    local total=$(( bytes + saved ))
-    local gb
-    gb=$(awk "BEGIN{printf \"%.2f\", $total/1073741824}")
-    echo "$gb"
-}
-
-save_user_usage() {
-    local username="$1"
-    local chain="slowdns_$username"
-    local raw
-    raw=$(iptables -L "$chain" -xvn 2>/dev/null | awk 'NR==3{print $2}')
-    [[ "$raw" =~ ^[0-9]+$ ]] || return
-    local saved=0
-    [[ -f "$USAGE_DIR/$username" ]] && saved=$(cat "$USAGE_DIR/$username" 2>/dev/null)
-    [[ "$saved" =~ ^[0-9]+$ ]] || saved=0
-    echo $(( raw + saved )) > "$USAGE_DIR/$username"
-    iptables -Z "$chain" 2>/dev/null
+    total=$(( bytes + saved ))
+    awk "BEGIN{printf \"%.2f\", $total/1073741824}"
 }
 
 check_quota_all_users() {
-    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger conn_limit; do
         [[ -z "$user" || "$acc_status" == "locked" ]] && continue
         gb_limit=${gb_limit:-0}
         [[ "$gb_limit" -eq 0 ]] && continue
+        local usage_gb
         usage_gb=$(get_user_usage_gb "$user")
+        local exceeded
         exceeded=$(awk "BEGIN{print ($usage_gb >= $gb_limit) ? 1 : 0}")
         if [[ "$exceeded" == "1" ]]; then
             passwd -l "$user" 2>/dev/null
             sed -i "s/^$user|$pass|$exp|$created|$gb_limit|active/$user|$pass|$exp|$created|$gb_limit|locked/" "$USER_DB"
-            log_error "User $user exceeded ${gb_limit}GB quota — LOCKED"
+            log_error "USER $user EXCEEDED ${gb_limit}GB QUOTA — LOCKED"
         fi
     done < "$USER_DB"
 }
@@ -1749,418 +1064,249 @@ update_motd_script() {
 #!/bin/bash
 USER_DB="/etc/slowdns/users.txt"
 USAGE_DIR="/etc/slowdns/usage"
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-WHITE='\033[1;37m'
-NC='\033[0m'
-
+CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+RED='\033[0;31m'; WHITE='\033[1;37m'; BRED='\033[1;31m'; NC='\033[0m'
 [[ ! -f "$USER_DB" ]] && exit 0
-
 me=$(whoami)
 user_line=$(grep "^${me}|" "$USER_DB" 2>/dev/null)
 [[ -z "$user_line" ]] && exit 0
-
-IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
-gb_limit=${gb_limit:-0}
-acc_status=${acc_status:-active}
-
+IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
+gb_limit=${gb_limit:-0}; acc_status=${acc_status:-active}; conn_limit=${conn_limit:-0}
 current=$(date +%s)
-exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
+exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo 0)
 days_left=$(( (exp_unix - current) / 86400 ))
-
 bytes=0
-chain="slowdns_${me}"
-raw=$(iptables -L "$chain" -xvn 2>/dev/null | awk 'NR==3{print $2}')
+raw=$(iptables -L "slowdns_${me}" -xvn 2>/dev/null | awk 'NR==3{print $2}')
 [[ "$raw" =~ ^[0-9]+$ ]] && bytes=$raw
 saved=0
 [[ -f "$USAGE_DIR/$me" ]] && saved=$(cat "$USAGE_DIR/$me" 2>/dev/null)
 [[ "$saved" =~ ^[0-9]+$ ]] || saved=0
 total=$(( bytes + saved ))
 usage_gb=$(awk "BEGIN{printf \"%.2f\", $total/1073741824}")
-
 echo ""
-echo -e "${RED}╔═══════════════════════════════════════════════════════╗${NC}"
-echo -e "${RED}║  ☠  BLACK KILLER - SSH TUNNEL MANAGER v8.0 ULTRA ☠  ║${NC}"
-echo -e "${RED}║           Created By MR BLACK KILLER                 ║${NC}"
-echo -e "${RED}╠═══════════════════════════════════════════════════════╣${NC}"
-printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "👤 Username:" "$me"
-printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${YELLOW}%-32s${NC}${CYAN}║${NC}\n" "📅 Expires:" "$exp"
-
+echo -e "${BRED}╔═══════════════════════════════════════════════════════╗${NC}"
+echo -e "${BRED}║  ☠  BLACK KILLER — SSH TUNNEL MANAGER v9.0 ULTRA  ☠  ║${NC}"
+echo -e "${BRED}║            📱 WhatsApp: +255658785522               ║${NC}"
+echo -e "${BRED}╠═══════════════════════════════════════════════════════╣${NC}"
+printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "👤 USERNAME:" "$me"
+printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${YELLOW}%-32s${NC}${CYAN}║${NC}\n" "📅 EXPIRES:" "$exp"
 if [[ "$acc_status" == "locked" ]]; then
-    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "🔒 Status:" "LOCKED"
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "🔒 STATUS:" "LOCKED"
 elif [[ $current -gt $exp_unix ]]; then
-    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "⏳ Days Left:" "EXPIRED"
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "⏳ DAYS LEFT:" "EXPIRED"
+elif [[ $days_left -le 3 ]]; then
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "⏳ DAYS LEFT:" "${days_left} DAYS (EXPIRING SOON!)"
 else
-    if [[ $days_left -le 3 ]]; then
-        printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${RED}%-32s${NC}${CYAN}║${NC}\n" "⏳ Days Left:" "${days_left} days (EXPIRING SOON!)"
-    else
-        printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "⏳ Days Left:" "${days_left} days"
-    fi
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "⏳ DAYS LEFT:" "${days_left} DAYS"
 fi
-
 if [[ "$gb_limit" -gt 0 ]]; then
     pct=$(awk "BEGIN{printf \"%.0f\", ($usage_gb/$gb_limit)*100}")
-    bar_fill=$(awk "BEGIN{printf \"%d\", ($usage_gb/$gb_limit)*20}")
-    bar_empty=$(( 20 - bar_fill ))
-    bar=$(printf '#%.0s' $(seq 1 $bar_fill 2>/dev/null))$(printf '.%.0s' $(seq 1 $bar_empty 2>/dev/null))
-    if [[ $pct -ge 90 ]]; then
-        col="${RED}"
-    elif [[ $pct -ge 70 ]]; then
-        col="${YELLOW}"
-    else
-        col="${GREEN}"
-    fi
-    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${col}%-32s${NC}${CYAN}║${NC}\n" "📶 Data Used:" "${usage_gb} GB / ${gb_limit} GB (${pct}%)"
-    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${col}[%-20s]${NC} ${WHITE}%-9s${NC}${CYAN}║${NC}\n" "  Progress:" "$bar" "${pct}%"
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${CYAN}%-32s${NC}${CYAN}║${NC}\n" "📶 DATA USED:" "${usage_gb} GB / ${gb_limit} GB (${pct}%)"
 else
-    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "📶 Data Used:" "${usage_gb} GB / Unlimited"
+    printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${GREEN}%-32s${NC}${CYAN}║${NC}\n" "📶 DATA USED:" "${usage_gb} GB / UNLIMITED"
 fi
-
+cl_text="$([ "$conn_limit" -eq 0 ] && echo UNLIMITED || echo "$conn_limit")"
+printf "${CYAN}║${NC}  ${WHITE}%-20s${NC} ${CYAN}%-32s${NC}${CYAN}║${NC}\n" "🔗 CONN LIMIT:" "$cl_text"
 echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
 echo ""
 MOTD_EOF
     chmod +x "$motd_script" 2>/dev/null
 }
 
-#============================================
-# RENEW SSH USER
-#============================================
-
+#============================================================
+# RENEW USER
+#============================================================
 renew_ssh_user() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                 RENEW SSH USER                       ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "🔄 RENEW SSH USER"
+    dsep
     echo ""
 
-    if [[ ! -s "$USER_DB" ]]; then
-        log_error "No users found"
-        press_enter
-        return
-    fi
+    [[ ! -s "$USER_DB" ]] && { log_error "NO USERS FOUND"; press_enter; return; }
 
-    echo -e "${YELLOW}Active users:${NC}"
-    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+    echo -e "${YELLOW}ACTIVE USERS:${NC}"
+    while IFS='|' read -r user pass exp _ _ _rest; do
         [[ -z "$user" ]] && continue
-        echo -e "  ${GREEN}→${NC} $user  ${WHITE}(expires: $exp)${NC}"
+        echo -e "  ${GREEN}→${NC} $user  ${WHITE}(EXPIRES: $exp)${NC}"
     done < "$USER_DB"
     echo ""
 
-    read -p "Username to renew: " username
-
-    if [[ -z "$username" ]]; then
-        log_error "Username required"
-        press_enter
-        return
-    fi
+    read -rp "USERNAME TO RENEW: " username
+    [[ -z "$username" ]] && { log_error "USERNAME REQUIRED"; press_enter; return; }
 
     local user_line
     user_line=$(grep "^$username|" "$USER_DB")
-    if [[ -z "$user_line" ]]; then
-        log_error "User not found in database"
-        press_enter
-        return
-    fi
+    [[ -z "$user_line" ]] && { log_error "USER NOT FOUND"; press_enter; return; }
 
     echo ""
-    echo -e "${YELLOW}Select new expiration period:${NC}"
+    echo -e "${YELLOW}SELECT NEW EXPIRATION:${NC}"
+    echo -e "  ${CYAN}1)${NC} 1 DAY   ${CYAN}2)${NC} 7 DAYS   ${CYAN}3)${NC} 30 DAYS ⭐   ${CYAN}4)${NC} 90 DAYS   ${CYAN}5)${NC} 365 DAYS"
     echo ""
-    echo -e "  ${CYAN}1)${NC} 1 Day"
-    echo -e "  ${CYAN}2)${NC} 7 Days"
-    echo -e "  ${CYAN}3)${NC} 30 Days ${GREEN}⭐${NC}"
-    echo -e "  ${CYAN}4)${NC} 90 Days"
-    echo -e "  ${CYAN}5)${NC} 365 Days"
-    echo ""
-    read -p "Choice [1-5, default=3]: " exp_choice
+    read -rp "CHOICE [1-5, default=3]: " exp_choice
 
     case ${exp_choice:-3} in
-        1) days=1 ;;
-        2) days=7 ;;
-        3) days=30 ;;
-        4) days=90 ;;
-        5) days=365 ;;
-        *) days=30 ;;
+        1) days=1 ;;   2) days=7 ;;
+        3) days=30 ;;  4) days=90 ;;
+        5) days=365 ;; *) days=30 ;;
     esac
 
-    IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
-    gb_limit=${gb_limit:-0}
-    acc_status=${acc_status:-active}
-
+    IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
     local new_exp
     new_exp=$(date -d "+$days days" +"%Y-%m-%d")
-
     chage -E "$new_exp" "$username" 2>/dev/null
 
-    sed -i "s|^$username|.*|$username|$pass|$new_exp|$created|$gb_limit|$acc_status|" "$USER_DB" 2>/dev/null || \
-    sed -i "/^$username|/c\\$username|$pass|$new_exp|$created|$gb_limit|$acc_status" "$USER_DB"
-
-    if [[ "$acc_status" == "locked" ]]; then
-        passwd -u "$username" 2>/dev/null
-        sed -i "/^$username|/c\\$username|$pass|$new_exp|$created|$gb_limit|active" "$USER_DB"
-        echo -e "${GREEN}✓ Account unlocked automatically during renewal${NC}"
-    fi
+    sed -i "/^$username|/c\\$username|$pass|$new_exp|$created|${gb_limit:-0}|active|${ar_days:-0}|${ar_trigger:-0}|${conn_limit:-0}" "$USER_DB"
 
     update_motd_script
-
-    echo ""
-    log_success "User $username renewed!"
-    echo -e "  ${WHITE}📅 New Expiry:${NC} ${GREEN}$new_exp${NC}"
-    echo -e "  ${WHITE}⏳ Valid:${NC}      ${GREEN}$days days${NC}"
-    echo ""
-
+    log_success "USER $username RENEWED — NEW EXPIRY: $new_exp ($days DAYS)"
     press_enter
 }
 
-#============================================
-# LOCK / UNLOCK SSH USER
-#============================================
-
+#============================================================
+# LOCK / UNLOCK
+#============================================================
 lock_ssh_user() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║               LOCK SSH ACCOUNT                       ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "🔒 LOCK SSH ACCOUNT"
+    dsep
     echo ""
+    [[ ! -s "$USER_DB" ]] && { log_error "NO USERS FOUND"; press_enter; return; }
 
-    if [[ ! -s "$USER_DB" ]]; then
-        log_error "No users found"
-        press_enter
-        return
-    fi
-
-    echo -e "${YELLOW}Users:${NC}"
-    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+    while IFS='|' read -r user _ _ _ _ acc_status _rest; do
         [[ -z "$user" ]] && continue
-        acc_status=${acc_status:-active}
-        if [[ "$acc_status" == "locked" ]]; then
-            echo -e "  ${RED}🔒 $user  (already locked)${NC}"
-        else
-            echo -e "  ${GREEN}🔓 $user  (active)${NC}"
-        fi
+        [[ "${acc_status:-active}" == "locked" ]] && echo -e "  ${RED}🔒 $user (ALREADY LOCKED)${NC}" || echo -e "  ${GREEN}🔓 $user (ACTIVE)${NC}"
     done < "$USER_DB"
     echo ""
-
-    read -p "Username to lock: " username
-
-    if [[ -z "$username" ]]; then
-        log_error "Username required"
-        press_enter
-        return
-    fi
+    read -rp "USERNAME TO LOCK: " username
+    [[ -z "$username" ]] && { log_error "USERNAME REQUIRED"; press_enter; return; }
 
     local user_line
     user_line=$(grep "^$username|" "$USER_DB")
-    if [[ -z "$user_line" ]]; then
-        log_error "User not found"
-        press_enter
-        return
-    fi
+    [[ -z "$user_line" ]] && { log_error "USER NOT FOUND"; press_enter; return; }
 
-    IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
-    gb_limit=${gb_limit:-0}
-
-    if [[ "${acc_status:-active}" == "locked" ]]; then
-        log_error "User $username is already locked"
-        press_enter
-        return
-    fi
+    IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
+    [[ "${acc_status:-active}" == "locked" ]] && { log_error "USER ALREADY LOCKED"; press_enter; return; }
 
     passwd -l "$username" 2>/dev/null
     pkill -u "$username" 2>/dev/null || true
-    sed -i "/^$username|/c\\$username|$pass|$exp|$created|$gb_limit|locked" "$USER_DB"
+    sed -i "/^$username|/c\\$username|$pass|$exp|$created|${gb_limit:-0}|locked|${ar_days:-0}|${ar_trigger:-0}|${conn_limit:-0}" "$USER_DB"
     update_motd_script
 
-    echo ""
-    log_success "User $username LOCKED"
-    echo -e "  ${RED}🔒 All sessions terminated${NC}"
-    echo -e "  ${RED}🔒 Login disabled${NC}"
-    echo ""
-
+    log_success "USER $username LOCKED — ALL SESSIONS TERMINATED"
     press_enter
 }
 
 unlock_ssh_user() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║              UNLOCK SSH ACCOUNT                      ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "🔓 UNLOCK SSH ACCOUNT"
+    dsep
     echo ""
+    [[ ! -s "$USER_DB" ]] && { log_error "NO USERS FOUND"; press_enter; return; }
 
-    if [[ ! -s "$USER_DB" ]]; then
-        log_error "No users found"
-        press_enter
-        return
-    fi
-
-    echo -e "${YELLOW}Users:${NC}"
-    while IFS='|' read -r user pass exp created gb_limit acc_status; do
+    while IFS='|' read -r user _ _ _ _ acc_status _rest; do
         [[ -z "$user" ]] && continue
-        acc_status=${acc_status:-active}
-        if [[ "$acc_status" == "locked" ]]; then
-            echo -e "  ${RED}🔒 $user  (locked)${NC}"
-        else
-            echo -e "  ${GREEN}🔓 $user  (active)${NC}"
-        fi
+        [[ "${acc_status:-active}" == "locked" ]] && echo -e "  ${RED}🔒 $user (LOCKED)${NC}" || echo -e "  ${GREEN}🔓 $user (ACTIVE)${NC}"
     done < "$USER_DB"
     echo ""
-
-    read -p "Username to unlock: " username
-
-    if [[ -z "$username" ]]; then
-        log_error "Username required"
-        press_enter
-        return
-    fi
+    read -rp "USERNAME TO UNLOCK: " username
+    [[ -z "$username" ]] && { log_error "USERNAME REQUIRED"; press_enter; return; }
 
     local user_line
     user_line=$(grep "^$username|" "$USER_DB")
-    if [[ -z "$user_line" ]]; then
-        log_error "User not found"
-        press_enter
-        return
-    fi
+    [[ -z "$user_line" ]] && { log_error "USER NOT FOUND"; press_enter; return; }
 
-    IFS='|' read -r u pass exp created gb_limit acc_status <<< "$user_line"
-    gb_limit=${gb_limit:-0}
-
-    if [[ "${acc_status:-active}" != "locked" ]]; then
-        log_error "User $username is not locked"
-        press_enter
-        return
-    fi
+    IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
+    [[ "${acc_status:-active}" != "locked" ]] && { log_error "USER IS NOT LOCKED"; press_enter; return; }
 
     passwd -u "$username" 2>/dev/null
-    sed -i "/^$username|/c\\$username|$pass|$exp|$created|$gb_limit|active" "$USER_DB"
+    sed -i "/^$username|/c\\$username|$pass|$exp|$created|${gb_limit:-0}|active|${ar_days:-0}|${ar_trigger:-0}|${conn_limit:-0}" "$USER_DB"
     update_motd_script
 
-    echo ""
-    log_success "User $username UNLOCKED"
-    echo -e "  ${GREEN}🔓 Login re-enabled${NC}"
-    echo ""
-
+    log_success "USER $username UNLOCKED"
     press_enter
 }
 
-#============================================
+#============================================================
 # SSH BANNER MANAGEMENT
-#============================================
-
+#============================================================
 manage_ssh_banner() {
     while true; do
         show_banner
-        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║              SSH BANNER / SERVER MESSAGE              ║${NC}"
-        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        dtitle "🖥️  SSH BANNER / SERVER MESSAGE"
+        dsep
         echo ""
-
         if [[ -f "$BANNER_FILE" ]]; then
-            echo -e "${GREEN}✅ Banner is SET${NC}"
-            echo -e "${YELLOW}━━━━━━━━━━ Current Banner ━━━━━━━━━━${NC}"
+            echo -e "${GREEN}✅ BANNER IS SET${NC}"
+            echo -e "${YELLOW}━━━━ CURRENT BANNER ━━━━${NC}"
             cat "$BANNER_FILE"
-            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         else
-            echo -e "${RED}⚠️  No banner set yet${NC}"
+            echo -e "${RED}⚠ NO BANNER SET${NC}"
         fi
         echo ""
-        echo -e "  ${GREEN}1)${NC} ✏️  Set / Edit Banner Text"
-        echo -e "  ${YELLOW}2)${NC} 🎨 Set Default DNSTT Banner"
-        echo -e "  ${RED}3)${NC} 🗑️  Remove Banner"
-        echo -e "  ${WHITE}0)${NC} ⬅️  Back"
+        echo -e "  ${GREEN}1)${NC} ✏️  SET / EDIT BANNER TEXT"
+        echo -e "  ${YELLOW}2)${NC} 🎨 SET DEFAULT BANNER"
+        echo -e "  ${RED}3)${NC} 🗑️  REMOVE BANNER"
+        echo -e "  ${WHITE}0)${NC} ⬅️  BACK"
         echo ""
-        read -p "Choice: " choice
-
+        read -rp "CHOICE: " choice
         case $choice in
-            1) edit_ssh_banner ;;
-            2) set_default_ssh_banner ;;
-            3) remove_ssh_banner ;;
-            0) return ;;
-            *) log_error "Invalid choice"; sleep 1 ;;
-        esac
-    done
-}
-
-edit_ssh_banner() {
-    show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║               EDIT SSH BANNER                        ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    echo -e "${YELLOW}Enter banner text (type END on a new line to finish):${NC}"
-    echo -e "${WHITE}(This message is shown to users BEFORE they log in)${NC}"
-    echo ""
-
-    local banner_text=""
-    while IFS= read -r line; do
-        [[ "$line" == "END" ]] && break
-        banner_text+="$line"$'\n'
-    done
-
-    if [[ -z "$banner_text" ]]; then
-        log_error "Banner text cannot be empty"
-        press_enter
-        return
-    fi
-
-    echo "$banner_text" > "$BANNER_FILE"
-
-    apply_ssh_banner_config
-
-    log_success "SSH Banner updated!"
-    echo ""
-    press_enter
-}
-
-set_default_ssh_banner() {
-    cat > "$BANNER_FILE" << 'BANNER_EOF'
+            1)
+                show_banner
+                dtitle "EDIT SSH BANNER"
+                dsep
+                echo ""
+                echo -e "${YELLOW}ENTER BANNER TEXT (TYPE 'END' ON A NEW LINE TO FINISH):${NC}"
+                echo ""
+                local banner_text=""
+                while IFS= read -r line; do
+                    [[ "$line" == "END" ]] && break
+                    banner_text+="$line"$'\n'
+                done
+                [[ -z "$banner_text" ]] && { log_error "BANNER CANNOT BE EMPTY"; press_enter; continue; }
+                echo "$banner_text" > "$BANNER_FILE"
+                _apply_banner_config
+                log_success "SSH BANNER UPDATED"
+                press_enter
+                ;;
+            2)
+                cat > "$BANNER_FILE" << 'BANNER_EOF'
 
 ╔═══════════════════════════════════════════════════════╗
 ║   ██████╗ ██╗      █████╗  ██████╗██╗  ██╗           ║
 ║   ██╔══██╗██║     ██╔══██╗██╔════╝██║ ██╔╝           ║
 ║   ██████╔╝██║     ███████║██║     █████╔╝            ║
-║   ██╔══██╗██║     ██╔══██║██║     ██╔═██╗            ║
-║   ██████╔╝███████╗██║  ██║╚██████╗██║  ██╗           ║
 ║   ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝           ║
-║   ██╗  ██╗██╗██╗     ██╗     ███████╗██████╗         ║
-║   ██║ ██╔╝██║██║     ██║     ██╔════╝██╔══██╗        ║
-║   █████╔╝ ██║██║     ██║     █████╗  ██████╔╝        ║
-║   ██╔═██╗ ██║██║     ██║     ██╔══╝  ██╔══██╗        ║
-║   ██║  ██╗██║███████╗███████╗███████╗██║  ██║        ║
-║   ╚═╝  ╚═╝╚═╝╚══════╝╚══════╝╚══════╝╚═╝  ╚═╝        ║
 ╠═══════════════════════════════════════════════════════╣
-║         SSH TUNNEL MANAGER v8.0 ULTRA                ║
-║           CREATED BY MR BLACK KILLER                 ║
+║     SSH TUNNEL MANAGER v9.0 — BLACK KILLER           ║
+║     📱 WhatsApp: +255658785522                       ║
 ╠═══════════════════════════════════════════════════════╣
-║  ⚠️   AUTHORIZED ACCESS ONLY                          ║
-║  🔐  All sessions are monitored and logged            ║
-║  📶  Powered by DNSTT Ultra Speed Edition             ║
-║  🌐  Maximum Speed: 10-25 Mbps                        ║
+║  ⚠  AUTHORIZED ACCESS ONLY                           ║
+║  🔐 ALL SESSIONS ARE MONITORED AND LOGGED            ║
 ╚═══════════════════════════════════════════════════════╝
 
 BANNER_EOF
-
-    apply_ssh_banner_config
-    log_success "Default DNSTT banner applied!"
-    echo ""
-    press_enter
+                _apply_banner_config
+                log_success "DEFAULT BANNER APPLIED"
+                press_enter
+                ;;
+            3)
+                read -rp "REMOVE SSH BANNER? [yes/no]: " confirm
+                if [[ "$confirm" == "yes" ]]; then
+                    rm -f "$BANNER_FILE"
+                    sed -i '/^Banner /d' /etc/ssh/sshd_config 2>/dev/null
+                    systemctl reload sshd 2>/dev/null || true
+                    log_success "BANNER REMOVED"
+                fi
+                press_enter
+                ;;
+            0) return ;;
+            *) log_error "INVALID CHOICE"; sleep 1 ;;
+        esac
+    done
 }
 
-remove_ssh_banner() {
-    read -p "Remove SSH banner? [yes/no]: " confirm
-    if [[ "$confirm" == "yes" ]]; then
-        rm -f "$BANNER_FILE"
-        sed -i '/^Banner /d' /etc/ssh/sshd_config 2>/dev/null
-        systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
-        log_success "Banner removed"
-    else
-        echo -e "${YELLOW}Cancelled${NC}"
-    fi
-    echo ""
-    press_enter
-}
-
-apply_ssh_banner_config() {
+_apply_banner_config() {
     if grep -q "^Banner " /etc/ssh/sshd_config 2>/dev/null; then
         sed -i "s|^Banner .*|Banner $BANNER_FILE|" /etc/ssh/sshd_config
     else
@@ -2169,141 +1315,97 @@ apply_ssh_banner_config() {
     systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
 }
 
-#============================================
-# AUTO-RENEW USERS
-#============================================
-
+#============================================================
+# AUTO-RENEW
+#============================================================
 run_auto_renew() {
     [[ ! -s "$USER_DB" ]] && return
-    local current
+    local current tmp_db renewed=0
     current=$(date +%s)
-    local tmp_db
     tmp_db=$(mktemp)
-    local renewed=0
 
-    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger conn_limit; do
         [[ -z "$user" ]] && continue
-        ar_days=${ar_days:-0}
-        ar_trigger=${ar_trigger:-0}
-        acc_status=${acc_status:-active}
+        ar_days=${ar_days:-0}; ar_trigger=${ar_trigger:-0}; acc_status=${acc_status:-active}; conn_limit=${conn_limit:-0}
 
         if [[ "$ar_days" -gt 0 && "$acc_status" != "locked" ]]; then
-            exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
+            local exp_unix days_left
+            exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo 0)
             days_left=$(( (exp_unix - current) / 86400 ))
-
             if [[ $days_left -le $ar_trigger ]]; then
+                local new_exp
                 new_exp=$(date -d "+$ar_days days" +"%Y-%m-%d")
                 chage -E "$new_exp" "$user" 2>/dev/null
-                if [[ "$acc_status" == "locked" ]]; then
-                    passwd -u "$user" 2>/dev/null
-                    acc_status="active"
-                fi
-                echo "$user|$pass|$new_exp|$created|$gb_limit|$acc_status|$ar_days|$ar_trigger" >> "$tmp_db"
-                log_success "Auto-Renew: $user → $new_exp (+${ar_days}d)"
+                echo "$user|$pass|$new_exp|$created|${gb_limit:-0}|active|$ar_days|$ar_trigger|$conn_limit" >> "$tmp_db"
+                log_success "AUTO-RENEW: $user → $new_exp (+${ar_days}d)"
                 renewed=$((renewed + 1))
                 continue
             fi
         fi
-        echo "$user|$pass|$exp|$created|$gb_limit|$acc_status|$ar_days|$ar_trigger" >> "$tmp_db"
+        echo "$user|$pass|$exp|$created|${gb_limit:-0}|$acc_status|$ar_days|$ar_trigger|$conn_limit" >> "$tmp_db"
     done < "$USER_DB"
 
     mv "$tmp_db" "$USER_DB"
     [[ $renewed -gt 0 ]] && update_motd_script
-    return $renewed
 }
 
 toggle_auto_renew() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║             AUTO-RENEW SETTINGS                      ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "♻️  AUTO-RENEW SETTINGS"
+    dsep
     echo ""
+    [[ ! -s "$USER_DB" ]] && { log_error "NO USERS FOUND"; press_enter; return; }
 
-    if [[ ! -s "$USER_DB" ]]; then
-        log_error "No users found"
-        press_enter
-        return
-    fi
-
-    echo -e "${YELLOW}Watumiaji na hali yao ya Auto-Renew:${NC}"
+    echo -e "${YELLOW}USERS AND AUTO-RENEW STATUS:${NC}"
     echo ""
-    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+    while IFS='|' read -r user _ _ _ _ _ ar_days ar_trigger _; do
         [[ -z "$user" ]] && continue
         ar_days=${ar_days:-0}
-        ar_trigger=${ar_trigger:-0}
-        if [[ "$ar_days" -gt 0 ]]; then
-            echo -e "  ${GREEN}🔄 $user${NC}  → Renew ${ar_days}d (trigger: ${ar_trigger}d kabla ya expire)"
-        else
-            echo -e "  ${RED}⏹  $user${NC}  → Auto-Renew DISABLED"
-        fi
+        [[ "$ar_days" -gt 0 ]] && echo -e "  ${GREEN}🔄 $user${NC} → RENEW ${ar_days}d (TRIGGER: ${ar_trigger}d BEFORE EXPIRY)" || echo -e "  ${RED}⏹  $user${NC} → AUTO-RENEW DISABLED"
     done < "$USER_DB"
     echo ""
 
-    read -p "Username: " username
-    [[ -z "$username" ]] && { log_error "Username required"; press_enter; return; }
+    read -rp "USERNAME: " username
+    [[ -z "$username" ]] && { log_error "USERNAME REQUIRED"; press_enter; return; }
 
     local user_line
     user_line=$(grep "^$username|" "$USER_DB")
-    if [[ -z "$user_line" ]]; then
-        log_error "User not found"
-        press_enter
-        return
-    fi
-
-    IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger <<< "$user_line"
-    ar_days=${ar_days:-0}
+    [[ -z "$user_line" ]] && { log_error "USER NOT FOUND"; press_enter; return; }
+    IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
 
     echo ""
-    echo -e "${YELLOW}Chagua mpangilio mpya wa Auto-Renew:${NC}"
+    echo -e "  ${RED}1)${NC} DISABLE AUTO-RENEW"
+    echo -e "  ${CYAN}2)${NC} RENEW 7 DAYS (TRIGGER: 1 DAY BEFORE)"
+    echo -e "  ${CYAN}3)${NC} RENEW 30 DAYS (TRIGGER: 3 DAYS BEFORE)"
+    echo -e "  ${CYAN}4)${NC} RENEW 30 DAYS (TRIGGER: 7 DAYS BEFORE)"
+    echo -e "  ${CYAN}5)${NC} RENEW 90 DAYS (TRIGGER: 7 DAYS BEFORE)"
+    echo -e "  ${CYAN}6)${NC} CUSTOM"
     echo ""
-    echo -e "  ${RED}1)${NC} Zima Auto-Renew"
-    echo -e "  ${CYAN}2)${NC} Renew siku 7 (trigger: siku 1 kabla)"
-    echo -e "  ${CYAN}3)${NC} Renew siku 30 (trigger: siku 3 kabla)"
-    echo -e "  ${CYAN}4)${NC} Renew siku 30 (trigger: siku 7 kabla)"
-    echo -e "  ${CYAN}5)${NC} Renew siku 90 (trigger: siku 7 kabla)"
-    echo -e "  ${CYAN}6)${NC} Weka siku maalum"
-    echo ""
-    read -p "Choice [1-6]: " ar_choice
+    read -rp "CHOICE [1-6]: " ar_choice
 
     case ${ar_choice:-1} in
-        1) new_ar_days=0; new_ar_trigger=0 ;;
-        2) new_ar_days=7;  new_ar_trigger=1 ;;
-        3) new_ar_days=30; new_ar_trigger=3 ;;
-        4) new_ar_days=30; new_ar_trigger=7 ;;
-        5) new_ar_days=90; new_ar_trigger=7 ;;
-        6)
-            read -p "Renew kwa siku ngapi: " new_ar_days
-            read -p "Trigger siku ngapi kabla ya expire: " new_ar_trigger
-            [[ ! "$new_ar_days" =~ ^[0-9]+$ ]]    && new_ar_days=30
-            [[ ! "$new_ar_trigger" =~ ^[0-9]+$ ]] && new_ar_trigger=3
-            ;;
-        *) new_ar_days=0; new_ar_trigger=0 ;;
+        1) new_ar=0; new_tr=0 ;;
+        2) new_ar=7;  new_tr=1 ;;
+        3) new_ar=30; new_tr=3 ;;
+        4) new_ar=30; new_tr=7 ;;
+        5) new_ar=90; new_tr=7 ;;
+        6) read -rp "RENEW FOR HOW MANY DAYS: " new_ar; read -rp "TRIGGER HOW MANY DAYS BEFORE EXPIRY: " new_tr
+           [[ ! "$new_ar" =~ ^[0-9]+$ ]] && new_ar=30
+           [[ ! "$new_tr" =~ ^[0-9]+$ ]] && new_tr=3 ;;
+        *) new_ar=0; new_tr=0 ;;
     esac
 
-    sed -i "/^$username|/c\\$username|$pass|$exp|$created|$gb_limit|$acc_status|$new_ar_days|$new_ar_trigger" "$USER_DB"
-
-    echo ""
-    if [[ "$new_ar_days" -gt 0 ]]; then
-        log_success "Auto-Renew imewashwa: $username → ${new_ar_days}d (trigger: ${new_ar_trigger}d kabla)"
-    else
-        log_success "Auto-Renew imezimwa kwa $username"
-    fi
-    echo ""
+    sed -i "/^$username|/c\\$username|$pass|$exp|$created|${gb_limit:-0}|${acc_status:-active}|$new_ar|$new_tr|${conn_limit:-0}" "$USER_DB"
+    [[ "$new_ar" -gt 0 ]] && log_success "AUTO-RENEW ENABLED: $username → ${new_ar}d (TRIGGER: ${new_tr}d BEFORE)" || log_success "AUTO-RENEW DISABLED FOR $username"
     press_enter
 }
 
 view_auto_renew_status() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║           AUTO-RENEW STATUS & HISTORY                ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "📊 AUTO-RENEW STATUS"
+    dsep
     echo ""
-
-    if [[ ! -s "$USER_DB" ]]; then
-        echo -e "${YELLOW}Hakuna watumiaji.${NC}"
-        press_enter
-        return
-    fi
+    [[ ! -s "$USER_DB" ]] && { echo -e "${YELLOW}NO USERS.${NC}"; press_enter; return; }
 
     local current
     current=$(date +%s)
@@ -2312,22 +1414,17 @@ view_auto_renew_status() {
         " USERNAME" " EXPIRES" " DAYS" " AUTO-RENEW" " TRIGGER"
     echo -e "${CYAN}╠══════════════╪════════════╪══════════╪════════════════╪════════════╣${NC}"
 
-    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+    while IFS='|' read -r user _ exp _ _ _ ar_days ar_trigger _; do
         [[ -z "$user" ]] && continue
-        ar_days=${ar_days:-0}
-        ar_trigger=${ar_trigger:-0}
+        ar_days=${ar_days:-0}; ar_trigger=${ar_trigger:-0}
+        local exp_unix days_left
         exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo 0)
         days_left=$(( (exp_unix - current) / 86400 ))
-
-        if [[ "$ar_days" -gt 0 ]]; then
-            ar_display="${GREEN}${ar_days}d${NC}"
-            tr_display="${YELLOW}${ar_trigger}d kabla${NC}"
-        else
-            ar_display="${RED}OFF${NC}"
-            tr_display="${RED}---${NC}"
-        fi
-
         [[ $days_left -lt 0 ]] && days_left=0
+
+        local ar_display tr_display days_col
+        [[ "$ar_days" -gt 0 ]] && ar_display="${GREEN}${ar_days}d${NC}" || ar_display="${RED}OFF${NC}"
+        [[ "$ar_days" -gt 0 ]] && tr_display="${YELLOW}${ar_trigger}d BEFORE${NC}" || tr_display="${RED}---${NC}"
         [[ $days_left -le 3 ]] && days_col="${RED}" || days_col="${GREEN}"
 
         printf "${CYAN}║${NC} %-12s ${CYAN}│${NC} %-10s ${CYAN}│${NC} " "$user" "$exp"
@@ -2340,46 +1437,35 @@ view_auto_renew_status() {
 
     echo -e "${CYAN}╚══════════════╧════════════╧══════════╧════════════════╧════════════╝${NC}"
     echo ""
-    echo -e "${YELLOW}Bonyeza 'R' kurun Auto-Renew sasa, au Enter kurudi:${NC}"
-    read -p "" run_now
-    if [[ "${run_now,,}" == "r" ]]; then
-        run_auto_renew
-        log_success "Auto-Renew imekimbia!"
-    fi
+    echo -e "${YELLOW}PRESS 'R' TO RUN AUTO-RENEW NOW, OR ENTER TO GO BACK:${NC}"
+    read -rp "" run_now
+    [[ "${run_now,,}" == "r" ]] && { run_auto_renew; log_success "AUTO-RENEW EXECUTED"; }
     press_enter
 }
 
-#============================================
-# BACKUP & RESTORE USERS
-#============================================
-
+#============================================================
+# BACKUP & RESTORE
+#============================================================
 backup_users() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║               BACKUP WATUMIAJI                       ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "💾 BACKUP USERS"
+    dsep
     echo ""
 
-    local ts
+    local ts backup_file tmp_bk
     ts=$(date +"%Y%m%d_%H%M%S")
-    local backup_file="$BACKUP_DIR/bk_users_${ts}.tar.gz"
+    backup_file="$BACKUP_DIR/bk_users_${ts}.tar.gz"
 
-    echo -e "${CYAN}Inahifadhi backup...${NC}"
-    echo ""
+    fun_bar "sleep 1" "PREPARING BACKUP"
 
-    local tmp_bk
     tmp_bk=$(mktemp -d)
-
     cp "$USER_DB" "$tmp_bk/users.txt" 2>/dev/null
     cp -r "$USAGE_DIR" "$tmp_bk/usage" 2>/dev/null
     [[ -f "$INSTALL_DIR/connection_info.txt" ]] && cp "$INSTALL_DIR/connection_info.txt" "$tmp_bk/" 2>/dev/null
-    [[ -f "$INSTALL_DIR/ns_domain.txt" ]]        && cp "$INSTALL_DIR/ns_domain.txt"        "$tmp_bk/" 2>/dev/null
-    [[ -f "$INSTALL_DIR/tunnel_domain.txt" ]]    && cp "$INSTALL_DIR/tunnel_domain.txt"    "$tmp_bk/" 2>/dev/null
-    [[ -f "$BANNER_FILE" ]]                       && cp "$BANNER_FILE" "$tmp_bk/ssh_banner" 2>/dev/null
-
-    echo "Backup ya BLACK KILLER SSH Manager" > "$tmp_bk/info.txt"
-    echo "Tarehe: $(date)" >> "$tmp_bk/info.txt"
-    echo "Watumiaji: $(grep -c . "$USER_DB" 2>/dev/null || echo 0)" >> "$tmp_bk/info.txt"
+    [[ -f "$BANNER_FILE" ]] && cp "$BANNER_FILE" "$tmp_bk/ssh_banner" 2>/dev/null
+    echo "BLACK KILLER SSH Manager Backup" > "$tmp_bk/info.txt"
+    echo "Date: $(date)" >> "$tmp_bk/info.txt"
+    echo "Users: $(grep -c . "$USER_DB" 2>/dev/null || echo 0)" >> "$tmp_bk/info.txt"
 
     tar -czf "$backup_file" -C "$tmp_bk" . 2>/dev/null
     rm -rf "$tmp_bk"
@@ -2387,16 +1473,15 @@ backup_users() {
     if [[ -f "$backup_file" ]]; then
         local size
         size=$(du -sh "$backup_file" | cut -f1)
-        log_success "Backup imefanikiwa!"
+        dbox_top
+        log_success "BACKUP SUCCESSFUL!"
         echo ""
-        echo -e "  ${WHITE}📦 Faili:${NC}  ${GREEN}$backup_file${NC}"
-        echo -e "  ${WHITE}📏 Ukubwa:${NC} ${CYAN}$size${NC}"
-        echo -e "  ${WHITE}📅 Tarehe:${NC} ${YELLOW}$(date)${NC}"
-        echo ""
-        echo -e "${YELLOW}━━━ Backups Zilizopo ━━━${NC}"
-        ls -lh "$BACKUP_DIR"/*.tar.gz 2>/dev/null | awk '{print "  "$NF"  ("$5")"}' || echo "  Hakuna backup nyingine"
+        echo -e "  ${WHITE}📦 FILE   :${NC} ${GREEN}$backup_file${NC}"
+        echo -e "  ${WHITE}📏 SIZE   :${NC} ${CYAN}$size${NC}"
+        echo -e "  ${WHITE}📅 DATE   :${NC} ${YELLOW}$(date)${NC}"
+        dbox_bot
     else
-        log_error "Backup imeshindwa!"
+        log_error "BACKUP FAILED"
     fi
 
     echo ""
@@ -2405,664 +1490,1017 @@ backup_users() {
 
 restore_users() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║               RESTORE WATUMIAJI                      ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "📥 RESTORE USERS"
+    dsep
     echo ""
 
     local backups=()
-    while IFS= read -r f; do
-        backups+=("$f")
-    done < <(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
+    while IFS= read -r f; do backups+=("$f"); done < <(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null)
 
     if [[ ${#backups[@]} -eq 0 ]]; then
-        log_error "Hakuna backup iliyopatikana kwenye $BACKUP_DIR"
-        echo ""
-        echo -e "${YELLOW}Ili kuingiza backup kutoka server nyingine:${NC}"
-        echo -e "  ${CYAN}scp user@server:$BACKUP_DIR/bk_users_*.tar.gz $BACKUP_DIR/${NC}"
-        press_enter
-        return
+        log_error "NO BACKUPS FOUND IN $BACKUP_DIR"
+        press_enter; return
     fi
 
-    echo -e "${YELLOW}Backups zilizopo:${NC}"
+    echo -e "${YELLOW}AVAILABLE BACKUPS:${NC}"
     echo ""
     local i=1
     for f in "${backups[@]}"; do
-        local sz
+        local sz dt
         sz=$(du -sh "$f" 2>/dev/null | cut -f1)
-        local dt
         dt=$(basename "$f" | sed 's/bk_users_//;s/.tar.gz//' | sed 's/_/ /')
         echo -e "  ${CYAN}$i)${NC} $(basename "$f")  ${WHITE}[$sz]${NC}  ${YELLOW}$dt${NC}"
-        i=$((i + 1))
+        i=$((i+1))
     done
     echo ""
-    read -p "Chagua namba ya backup [1-${#backups[@]}]: " bk_choice
+    read -rp "SELECT BACKUP NUMBER [1-${#backups[@]}]: " bk_choice
 
     if ! [[ "$bk_choice" =~ ^[0-9]+$ ]] || [[ $bk_choice -lt 1 || $bk_choice -gt ${#backups[@]} ]]; then
-        log_error "Chaguo si sahihi"
-        press_enter
-        return
+        log_error "INVALID SELECTION"
+        press_enter; return
     fi
 
-    local selected="${backups[$((bk_choice - 1))]}"
+    local selected="${backups[$((bk_choice-1))]}"
     echo ""
-    echo -e "${YELLOW}Chagua aina ya restore:${NC}"
+    echo -e "  ${CYAN}1)${NC} MERGE — ADD USERS FROM BACKUP (KEEP EXISTING)"
+    echo -e "  ${RED}2)${NC} REPLACE — DELETE ALL AND RESTORE BACKUP"
     echo ""
-    echo -e "  ${CYAN}1)${NC} Merge — Ongeza watumiaji wa backup (bila kufuta waliopo)"
-    echo -e "  ${RED}2)${NC} Replace — Futa wote na weka wa backup (hatari!)"
-    echo ""
-    read -p "Choice [1-2]: " restore_type
+    read -rp "CHOICE [1-2]: " restore_type
 
     echo ""
-    echo -e "${RED}⚠️  Unafanya restore kutoka: $(basename "$selected")${NC}"
-    read -p "Andika 'yes' kukubali: " confirm
-    [[ "$confirm" != "yes" ]] && { echo -e "${YELLOW}Cancelled${NC}"; press_enter; return; }
+    echo -e "${RED}⚠ RESTORE FROM: $(basename "$selected")${NC}"
+    read -rp "TYPE 'yes' TO CONFIRM: " confirm
+    [[ "$confirm" != "yes" ]] && { echo -e "${YELLOW}CANCELLED${NC}"; press_enter; return; }
 
-    local tmp_restore
+    local tmp_restore restored=0 skipped=0
     tmp_restore=$(mktemp -d)
     tar -xzf "$selected" -C "$tmp_restore" 2>/dev/null
 
     if [[ ! -f "$tmp_restore/users.txt" ]]; then
-        log_error "Backup si sahihi — users.txt haikupatikana"
+        log_error "INVALID BACKUP — users.txt NOT FOUND"
         rm -rf "$tmp_restore"
-        press_enter
-        return
+        press_enter; return
     fi
 
-    echo ""
-    echo -e "${CYAN}Inafanya restore...${NC}"
-
-    local restored=0
-    local skipped=0
-
-    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger conn_limit; do
         [[ -z "$user" ]] && continue
-
-        if [[ "$restore_type" == "2" ]]; then
-            if grep -q "^$user|" "$USER_DB" 2>/dev/null; then
-                sed -i "/^$user|/d" "$USER_DB"
-                pkill -u "$user" 2>/dev/null || true
-                userdel -r "$user" 2>/dev/null || true
-            fi
-        fi
-
-        if grep -q "^$user|" "$USER_DB" 2>/dev/null; then
-            skipped=$((skipped + 1))
-            continue
-        fi
-
-        ar_days=${ar_days:-0}
-        ar_trigger=${ar_trigger:-0}
-        gb_limit=${gb_limit:-0}
-        acc_status=${acc_status:-active}
-
+        [[ "$restore_type" == "2" ]] && grep -q "^$user|" "$USER_DB" 2>/dev/null && {
+            sed -i "/^$user|/d" "$USER_DB"; pkill -u "$user" 2>/dev/null || true; userdel -r "$user" 2>/dev/null || true
+        }
+        grep -q "^$user|" "$USER_DB" 2>/dev/null && { skipped=$((skipped+1)); continue; }
         useradd -m -s /bin/bash "$user" 2>/dev/null
         echo "$user:$pass" | chpasswd 2>/dev/null
         chage -E "$exp" "$user" 2>/dev/null
-        echo "$user|$pass|$exp|$created|$gb_limit|$acc_status|$ar_days|$ar_trigger" >> "$USER_DB"
-        setup_user_quota "$user" "$gb_limit"
-        restored=$((restored + 1))
+        echo "$user|$pass|$exp|$created|${gb_limit:-0}|${acc_status:-active}|${ar_days:-0}|${ar_trigger:-0}|${conn_limit:-0}" >> "$USER_DB"
+        setup_user_quota "$user" "${gb_limit:-0}"
+        restored=$((restored+1))
     done < "$tmp_restore/users.txt"
 
     [[ -d "$tmp_restore/usage" ]] && cp -n "$tmp_restore/usage/"* "$USAGE_DIR/" 2>/dev/null
     [[ -f "$tmp_restore/ssh_banner" && ! -f "$BANNER_FILE" ]] && cp "$tmp_restore/ssh_banner" "$BANNER_FILE" 2>/dev/null
-
     rm -rf "$tmp_restore"
     update_motd_script
 
-    echo ""
-    log_success "Restore imekamilika!"
-    echo ""
-    echo -e "  ${GREEN}✓ Waliorejesihwa:${NC} ${WHITE}$restored${NC}"
-    echo -e "  ${YELLOW}⚠ Waliorukwa:${NC}    ${WHITE}$skipped${NC} (walikuwepo tayari)"
-    echo ""
-    press_enter
-}
-
-delete_old_backups() {
-    show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║              BACKUPS ZILIZOPO                        ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-
-    local count
-    count=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
-
-    if [[ $count -eq 0 ]]; then
-        echo -e "${YELLOW}Hakuna backup.${NC}"
-        press_enter
-        return
-    fi
-
-    echo -e "${WHITE}Backups (${count}):${NC}"
-    echo ""
-    ls -lh "$BACKUP_DIR"/*.tar.gz 2>/dev/null | awk '{print NR") "$NF"  ("$5")"}'
-    echo ""
-    local total_size
-    total_size=$(du -sh "$BACKUP_DIR" 2>/dev/null | cut -f1)
-    echo -e "${WHITE}Jumla ya ukubwa: ${CYAN}$total_size${NC}"
-    echo ""
-    echo -e "  ${RED}1)${NC} Futa backup maalum"
-    echo -e "  ${RED}2)${NC} Futa zote isipokuwa ya hivi karibuni"
-    echo -e "  ${WHITE}0)${NC} Rudi"
-    echo ""
-    read -p "Choice: " del_choice
-
-    case $del_choice in
-        1)
-            read -p "Namba ya backup ya kufuta: " del_num
-            local files=("$BACKUP_DIR"/*.tar.gz)
-            local idx=$(( del_num - 1 ))
-            if [[ -f "${files[$idx]}" ]]; then
-                rm -f "${files[$idx]}"
-                log_success "Backup imefutwa: $(basename "${files[$idx]}")"
-            else
-                log_error "Namba si sahihi"
-            fi
-            ;;
-        2)
-            local newest
-            newest=$(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1)
-            local deleted=0
-            for f in "$BACKUP_DIR"/*.tar.gz; do
-                [[ "$f" == "$newest" ]] && continue
-                rm -f "$f"
-                deleted=$((deleted + 1))
-            done
-            log_success "Backups $deleted zimefutwa. Backup ya hivi karibuni imehifadhiwa."
-            ;;
-        0) return ;;
-    esac
-    echo ""
+    log_success "RESTORE COMPLETE! RESTORED: $restored | SKIPPED: $skipped"
     press_enter
 }
 
 manage_backup_restore() {
     while true; do
         show_banner
-        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║           BACKUP & RESTORE WATUMIAJI                 ║${NC}"
-        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        dtitle "💾 BACKUP & RESTORE"
+        dsep
         echo ""
-
         local count
         count=$(ls "$BACKUP_DIR"/*.tar.gz 2>/dev/null | wc -l)
-        echo -e "  ${WHITE}📦 Backups zilizopo: ${CYAN}$count${NC}"
+        echo -e "  ${WHITE}📦 AVAILABLE BACKUPS: ${CYAN}$count${NC}"
         echo ""
-
-        echo -e "  ${GREEN}1)${NC} 💾 Fanya Backup Sasa"
-        echo -e "  ${YELLOW}2)${NC} 📥 Restore kutoka Backup"
-        echo -e "  ${RED}3)${NC} 🗑️  Simamia / Futa Backups"
-        echo -e "  ${WHITE}0)${NC} ⬅️  Back"
+        echo -e "  ${GREEN}1)${NC} 💾 CREATE BACKUP NOW"
+        echo -e "  ${YELLOW}2)${NC} 📥 RESTORE FROM BACKUP"
+        echo -e "  ${RED}3)${NC} 🗑️  MANAGE / DELETE BACKUPS"
+        echo -e "  ${WHITE}0)${NC} ⬅️  BACK"
         echo ""
-        read -p "Choice: " choice
-
+        read -rp "CHOICE: " choice
         case $choice in
             1) backup_users ;;
             2) restore_users ;;
-            3) delete_old_backups ;;
+            3)
+                show_banner
+                dtitle "🗑️  MANAGE BACKUPS"
+                dsep
+                echo ""
+                ls -lh "$BACKUP_DIR"/*.tar.gz 2>/dev/null | awk '{print NR") "$NF"  ("$5")"}' || echo "  NO BACKUPS"
+                echo ""
+                echo -e "  ${RED}1)${NC} DELETE SPECIFIC BACKUP"
+                echo -e "  ${RED}2)${NC} DELETE ALL EXCEPT LATEST"
+                echo -e "  ${WHITE}0)${NC} BACK"
+                echo ""
+                read -rp "CHOICE: " del_choice
+                case $del_choice in
+                    1)
+                        read -rp "BACKUP NUMBER TO DELETE: " del_num
+                        local files=("$BACKUP_DIR"/*.tar.gz)
+                        local idx=$(( del_num - 1 ))
+                        if [[ -f "${files[$idx]}" ]]; then
+                            rm -f "${files[$idx]}"
+                            log_success "BACKUP DELETED"
+                        else
+                            log_error "INVALID NUMBER"
+                        fi
+                        ;;
+                    2)
+                        local newest deleted=0
+                        newest=$(ls -t "$BACKUP_DIR"/*.tar.gz 2>/dev/null | head -1)
+                        for f in "$BACKUP_DIR"/*.tar.gz; do
+                            [[ "$f" == "$newest" ]] && continue
+                            rm -f "$f"; deleted=$((deleted+1))
+                        done
+                        log_success "$deleted BACKUPS DELETED. LATEST PRESERVED."
+                        ;;
+                esac
+                press_enter
+                ;;
             0) return ;;
-            *) log_error "Chaguo si sahihi"; sleep 1 ;;
+            *) log_error "INVALID CHOICE"; sleep 1 ;;
         esac
     done
 }
 
-#============================================
-# STATUS & INFO
-#============================================
+#============================================================
+# ★ SSH CONNECTION MONITOR (REAL-TIME)
+#============================================================
+ssh_monitor() {
+    if ! command -v who &>/dev/null; then
+        log_error "who COMMAND NOT AVAILABLE"
+        press_enter; return
+    fi
 
+    while true; do
+        clear
+        dtitle "👁️  ACTIVE SSH CONNECTIONS — REAL-TIME MONITOR"
+        dsep
+        echo ""
+
+        local total_sessions=0
+        declare -A user_ips user_sessions
+
+        while IFS= read -r line; do
+            local wuser wip
+            wuser=$(echo "$line" | awk '{print $1}')
+            wip=$(echo "$line" | awk '{print $5}' | tr -d '()')
+            [[ -z "$wuser" || "$wuser" == "NAME" ]] && continue
+            user_sessions["$wuser"]=$(( ${user_sessions["$wuser"]:-0} + 1 ))
+            user_ips["$wuser"]="$wip"
+            total_sessions=$((total_sessions + 1))
+        done < <(who 2>/dev/null)
+
+        printf "${CYAN}╔${NC}${WHITE}%-20s${NC}${CYAN}┬${NC}${WHITE}%-20s${NC}${CYAN}┬${NC}${WHITE}%-12s${NC}${CYAN}┬${NC}${WHITE}%-10s${NC}${CYAN}╗${NC}\n" \
+            " USER" " IP ADDRESS" " SESSIONS" " STATUS"
+        echo -e "${CYAN}╠════════════════════╪════════════════════╪════════════╪══════════╣${NC}"
+
+        if [[ ${#user_sessions[@]} -eq 0 ]]; then
+            printf "${CYAN}║${NC}  ${YELLOW}%-64s${NC}${CYAN}║${NC}\n" "NO ACTIVE CONNECTIONS"
+        else
+            for wuser in "${!user_sessions[@]}"; do
+                local sessions="${user_sessions[$wuser]}"
+                local ip="${user_ips[$wuser]:-UNKNOWN}"
+
+                # Check connection limit
+                local conn_limit=0
+                local user_db_line
+                user_db_line=$(grep "^$wuser|" "$USER_DB" 2>/dev/null)
+                if [[ -n "$user_db_line" ]]; then
+                    conn_limit=$(echo "$user_db_line" | cut -d'|' -f9)
+                    conn_limit=${conn_limit:-0}
+                fi
+
+                local status_col
+                if [[ "$conn_limit" -gt 0 && "$sessions" -gt "$conn_limit" ]]; then
+                    status_col="${RED}OVER LIMIT${NC}"
+                elif [[ "$sessions" -gt 0 ]]; then
+                    status_col="${GREEN}ONLINE${NC}"
+                else
+                    status_col="${YELLOW}IDLE${NC}"
+                fi
+
+                printf "${CYAN}║${NC} %-18s ${CYAN}│${NC} %-18s ${CYAN}│${NC} " "$wuser" "$ip"
+                echo -ne "   ${GREEN}$sessions${NC}"
+                printf "         ${CYAN}│${NC} "
+                echo -e "$status_col ${CYAN}║${NC}"
+            done
+        fi
+
+        echo -e "${CYAN}╚════════════════════╧════════════════════╧════════════╧══════════╝${NC}"
+        echo ""
+        echo -e "  ${WHITE}TOTAL ONLINE SESSIONS: ${GREEN}$total_sessions${NC}"
+        echo ""
+        dsep
+        echo -e "${YELLOW}  AUTO-REFRESH EVERY 5 SECONDS — PRESS 'q' + ENTER TO EXIT${NC}"
+        dsep
+
+        unset user_sessions user_ips
+        declare -A user_sessions user_ips
+
+        read -rt 5 -n 1 key && [[ "$key" == "q" ]] && return
+    done
+}
+
+#============================================================
+# ★ MULTI-LOGIN LIMITER
+#============================================================
+
+# Background daemon script
+_create_limiter_daemon() {
+    cat > /etc/slowdns/limiter_daemon.sh << 'DAEMON_EOF'
+#!/bin/bash
+USER_DB="/etc/slowdns/users.txt"
+LIMITER_DIR="/etc/slowdns/limiter"
+LOG="/var/log/dnstt/limiter.log"
+
+while true; do
+    [[ ! -f "$USER_DB" ]] && sleep 30 && continue
+    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger conn_limit; do
+        [[ -z "$user" ]] && continue
+        conn_limit=${conn_limit:-0}
+        [[ "$conn_limit" -eq 0 ]] && continue
+        [[ "${acc_status:-active}" != "active" ]] && continue
+
+        # Count current sessions
+        current_sessions=$(who 2>/dev/null | awk -v u="$user" '$1==u' | wc -l)
+
+        if [[ "$current_sessions" -gt "$conn_limit" ]]; then
+            excess=$(( current_sessions - conn_limit ))
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] AUTO-KICK: $user has $current_sessions sessions (limit: $conn_limit) — kicking $excess" >> "$LOG"
+
+            # Get PIDs sorted by age (oldest first) and kill excess
+            pids=$(ps --no-headers -o pid,etime,args | grep "sshd.*$user" | grep -v grep | sort -k2 -r | head -n "$excess" | awk '{print $1}')
+            for pid in $pids; do
+                kill -HUP "$pid" 2>/dev/null && echo "[$(date)] KILLED PID $pid for $user" >> "$LOG"
+            done
+            pkill -o -u "$user" -x sshd 2>/dev/null || true
+        fi
+    done < "$USER_DB"
+    sleep 30
+done
+DAEMON_EOF
+    chmod +x /etc/slowdns/limiter_daemon.sh
+}
+
+start_limiter_daemon() {
+    _create_limiter_daemon
+    if screen -list 2>/dev/null | grep -q "limiter_daemon"; then
+        screen -r -S "limiter_daemon" -X quit 2>/dev/null || true
+        sleep 1
+    fi
+    screen -dmS limiter_daemon /etc/slowdns/limiter_daemon.sh
+    echo "screen -dmS limiter_daemon /etc/slowdns/limiter_daemon.sh" > /etc/slowdns/limiter_autostart
+    log_success "MULTI-LOGIN LIMITER DAEMON STARTED"
+}
+
+stop_limiter_daemon() {
+    screen -r -S "limiter_daemon" -X quit 2>/dev/null || true
+    screen -wipe 2>/dev/null || true
+    rm -f /etc/slowdns/limiter_autostart
+    log_success "MULTI-LOGIN LIMITER DAEMON STOPPED"
+}
+
+manage_limiter() {
+    while true; do
+        show_banner
+        dtitle "🔐 MULTI-LOGIN LIMITER"
+        dsep
+        echo ""
+
+        local daemon_status="${RED}STOPPED${NC}"
+        screen -list 2>/dev/null | grep -q "limiter_daemon" && daemon_status="${GREEN}RUNNING${NC}"
+
+        echo -e "  ${WHITE}DAEMON STATUS:${NC} $daemon_status"
+        echo ""
+        echo -e "${YELLOW}USER CONNECTION LIMITS:${NC}"
+        echo ""
+
+        if [[ -s "$USER_DB" ]]; then
+            printf "  ${WHITE}%-16s%-14s%-12s${NC}\n" "USERNAME" "CONN LIMIT" "STATUS"
+            dsep_s
+            while IFS='|' read -r user _ _ _ _ acc_status _ _ conn_limit; do
+                [[ -z "$user" ]] && continue
+                conn_limit=${conn_limit:-0}
+                local lim_display
+                [[ "$conn_limit" -eq 0 ]] && lim_display="${GREEN}UNLIMITED${NC}" || lim_display="${CYAN}MAX $conn_limit${NC}"
+                local st_display
+                [[ "${acc_status:-active}" == "locked" ]] && st_display="${RED}LOCKED${NC}" || st_display="${GREEN}ACTIVE${NC}"
+                printf "  %-16s" "$user"
+                echo -ne "$lim_display"
+                printf "       "
+                echo -e "$st_display"
+            done < "$USER_DB"
+        else
+            echo -e "  ${YELLOW}NO USERS FOUND${NC}"
+        fi
+
+        echo ""
+        dsep
+        echo ""
+        echo -e "  ${GREEN}1)${NC} ▶  START LIMITER DAEMON"
+        echo -e "  ${RED}2)${NC} ■  STOP LIMITER DAEMON"
+        echo -e "  ${CYAN}3)${NC} ✏️  CHANGE CONNECTION LIMIT FOR A USER"
+        echo -e "  ${WHITE}0)${NC} ⬅️  BACK"
+        echo ""
+        read -rp "CHOICE: " choice
+
+        case $choice in
+            1) start_limiter_daemon; press_enter ;;
+            2) stop_limiter_daemon; press_enter ;;
+            3)
+                echo ""
+                read -rp "USERNAME: " uname
+                [[ -z "$uname" ]] && { log_error "USERNAME REQUIRED"; sleep 1; continue; }
+                local user_line
+                user_line=$(grep "^$uname|" "$USER_DB" 2>/dev/null)
+                [[ -z "$user_line" ]] && { log_error "USER NOT FOUND"; sleep 1; continue; }
+
+                IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
+                echo ""
+                echo -e "${YELLOW}CURRENT LIMIT: $([ "${conn_limit:-0}" -eq 0 ] && echo UNLIMITED || echo "${conn_limit:-0}")${NC}"
+                echo ""
+                echo -e "  ${CYAN}0)${NC} UNLIMITED"
+                echo -e "  ${CYAN}1)${NC} 1 SESSION"
+                echo -e "  ${CYAN}2)${NC} 2 SESSIONS"
+                echo -e "  ${CYAN}3)${NC} 3 SESSIONS"
+                echo -e "  ${CYAN}4)${NC} 5 SESSIONS"
+                echo -e "  ${CYAN}5)${NC} CUSTOM"
+                echo ""
+                read -rp "CHOICE [0-5]: " lim_choice
+                case $lim_choice in
+                    0) new_limit=0 ;;
+                    1) new_limit=1 ;;
+                    2) new_limit=2 ;;
+                    3) new_limit=3 ;;
+                    4) new_limit=5 ;;
+                    5) read -rp "ENTER CUSTOM LIMIT: " new_limit; [[ ! "$new_limit" =~ ^[0-9]+$ ]] && new_limit=0 ;;
+                    *) new_limit=${conn_limit:-0} ;;
+                esac
+
+                sed -i "/^$uname|/c\\$uname|$pass|$exp|$created|${gb_limit:-0}|${acc_status:-active}|${ar_days:-0}|${ar_trigger:-0}|$new_limit" "$USER_DB"
+                [[ "$new_limit" -gt 0 ]] && echo "$new_limit" > "$LIMITER_DIR/$uname" || rm -f "$LIMITER_DIR/$uname"
+
+                log_success "LIMIT UPDATED: $uname → $([ "$new_limit" -eq 0 ] && echo UNLIMITED || echo "$new_limit SESSIONS")"
+                press_enter
+                ;;
+            0) return ;;
+            *) log_error "INVALID CHOICE"; sleep 1 ;;
+        esac
+    done
+}
+
+#============================================================
+# ★ SERVER OPTIMIZER
+#============================================================
+server_optimizer() {
+    while true; do
+        show_banner
+        dtitle "⚙️  SERVER OPTIMIZER"
+        dsep
+        echo ""
+
+        local mem_total mem_used mem_free
+        mem_total=$(free -h | awk '/^Mem:/{print $2}')
+        mem_used=$(free -h | awk '/^Mem:/{print $3}')
+        mem_free=$(free -h | awk '/^Mem:/{print $4}')
+        local mem_pct
+        mem_pct=$(free | awk '/^Mem:/{printf "%.0f", $3/$2*100}')
+
+        echo -e "  ${WHITE}RAM:${NC} ${CYAN}${mem_used}/${mem_total}${NC} (${YELLOW}${mem_pct}% USED${NC})  ${WHITE}FREE: ${GREEN}${mem_free}${NC}"
+        echo ""
+        dsep
+        echo ""
+        echo -e "  ${GREEN}1)${NC} 📦 UPDATE PACKAGES (apt update/upgrade)"
+        echo -e "  ${CYAN}2)${NC} 🧹 CLEAN RAM CACHE (FREE MEMORY)"
+        echo -e "  ${YELLOW}3)${NC} 🗑️  REMOVE UNUSED PACKAGES (autoremove/autoclean)"
+        echo -e "  ${PURPLE}4)${NC} ⚡ FULL OPTIMIZE (ALL AT ONCE)"
+        echo -e "  ${WHITE}0)${NC} ⬅️  BACK"
+        echo ""
+        read -rp "CHOICE: " opt_choice
+
+        case $opt_choice in
+            1)
+                echo ""
+                fun_bar "apt-get update -y" "UPDATING PACKAGE LIST"
+                fun_bar "apt-get upgrade -y" "UPGRADING PACKAGES"
+                fun_bar "apt-get -f install -y" "FIXING DEPENDENCIES"
+                echo ""
+                log_success "PACKAGES UPDATED SUCCESSFULLY"
+                press_enter
+                ;;
+            2)
+                echo ""
+                local mem_before
+                mem_before=$(free | awk '/^Mem:/{printf "%.0f", $3/$2*100}')
+
+                fun_bar "sync && echo 3 > /proc/sys/vm/drop_caches && sync && swapoff -a && swapon -a" "CLEANING RAM CACHE"
+
+                local mem_after
+                mem_after=$(free | awk '/^Mem:/{printf "%.0f", $3/$2*100}')
+                local saved=$(( mem_before - mem_after ))
+
+                echo ""
+                dsep
+                echo -e "  ${WHITE}RAM BEFORE CLEANUP:${NC} ${YELLOW}${mem_before}%${NC}"
+                echo -e "  ${WHITE}RAM AFTER CLEANUP :${NC} ${GREEN}${mem_after}%${NC}"
+                echo -e "  ${WHITE}MEMORY FREED      :${NC} ${GREEN}${saved}%${NC}"
+                dsep
+                press_enter
+                ;;
+            3)
+                echo ""
+                fun_bar "apt-get autoremove -y" "REMOVING UNUSED PACKAGES"
+                fun_bar "apt-get autoclean -y" "CLEANING PACKAGE CACHE"
+                fun_bar "apt-get clean -y" "CLEANING APT CACHE"
+                echo ""
+                log_success "UNUSED PACKAGES REMOVED"
+                press_enter
+                ;;
+            4)
+                echo ""
+                fun_bar "apt-get update -y" "UPDATING PACKAGE LIST"
+                fun_bar "apt-get upgrade -y" "UPGRADING PACKAGES"
+                fun_bar "apt-get -f install -y" "FIXING DEPENDENCIES"
+                fun_bar "apt-get autoremove -y" "REMOVING UNUSED PACKAGES"
+                fun_bar "apt-get autoclean -y && apt-get clean -y" "CLEANING CACHE"
+                fun_bar "sync && echo 3 > /proc/sys/vm/drop_caches && sync && swapoff -a && swapon -a" "CLEANING RAM"
+                echo ""
+                dbox_top
+                log_success "FULL OPTIMIZATION COMPLETE!"
+                local mem_final
+                mem_final=$(free | awk '/^Mem:/{printf "%.0f", $3/$2*100}')
+                echo -e "  ${WHITE}RAM USAGE NOW: ${GREEN}${mem_final}%${NC}"
+                dbox_bot
+                press_enter
+                ;;
+            0) return ;;
+            *) log_error "INVALID CHOICE"; sleep 1 ;;
+        esac
+    done
+}
+
+#============================================================
+# ★ VPS INFO PANEL (ENHANCED)
+#============================================================
+vps_info_panel() {
+    show_banner
+    dtitle "📊 VPS INFORMATION PANEL"
+    dsep
+    echo ""
+
+    # CPU Info
+    local cpu_model cpu_cores cpu_usage
+    cpu_model=$(grep "model name" /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | xargs)
+    cpu_cores=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "?")
+    cpu_usage=$(top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print 100-$8}' | cut -d. -f1)
+    [[ -z "$cpu_usage" ]] && cpu_usage=$(vmstat 1 1 2>/dev/null | tail -1 | awk '{print 100-$15}')
+
+    # RAM Info
+    local ram_total ram_used ram_free ram_pct
+    ram_total=$(free -h | awk '/^Mem:/{print $2}')
+    ram_used=$(free -h | awk '/^Mem:/{print $3}')
+    ram_free=$(free -h | awk '/^Mem:/{print $4}')
+    ram_pct=$(free | awk '/^Mem:/{printf "%.1f", $3/$2*100}')
+
+    # SWAP
+    local swap_total swap_used
+    swap_total=$(free -h | awk '/^Swap:/{print $2}')
+    swap_used=$(free -h | awk '/^Swap:/{print $3}')
+
+    # Disk
+    local disk_total disk_used disk_free disk_pct
+    disk_total=$(df -h / | awk 'NR==2{print $2}')
+    disk_used=$(df -h / | awk 'NR==2{print $3}')
+    disk_free=$(df -h / | awk 'NR==2{print $4}')
+    disk_pct=$(df / | awk 'NR==2{print $5}')
+
+    # Uptime
+    local uptime_str
+    uptime_str=$(uptime -p 2>/dev/null || uptime | awk -F'up' '{print $2}' | cut -d',' -f1,2 | xargs)
+
+    # OS
+    local os_name
+    os_name=$(lsb_release -ds 2>/dev/null || cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d'"' -f2 || echo "Linux")
+
+    # Kernel
+    local kernel
+    kernel=$(uname -r)
+
+    # IP
+    local public_ip local_ip
+    public_ip=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || echo "N/A")
+    local_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v 127.0.0.1 | head -1)
+
+    # Load average
+    local load_avg
+    load_avg=$(cat /proc/loadavg 2>/dev/null | awk '{print $1, $2, $3}')
+
+    # Active ports
+    local open_ports
+    open_ports=$(ss -tlnp 2>/dev/null | awk 'NR>1{print $4}' | grep -oE ':[0-9]+' | tr -d ':' | sort -n | tr '\n' '  ' | head -c 80)
+
+    # Users online
+    local users_online
+    users_online=$(who 2>/dev/null | wc -l)
+
+    # DNSTT status
+    local dnstt_status
+    systemctl is-active --quiet dnstt 2>/dev/null && dnstt_status="${GREEN}RUNNING ✓${NC}" || dnstt_status="${RED}STOPPED ✗${NC}"
+
+    dbox_top
+    echo -e "${BYELLOW}                  🖥️  VPS INFORMATION PANEL${NC}"
+    dbox_bot
+    echo ""
+
+    echo -e "\E[44;1;37m  CPU INFORMATION  \E[0m"
+    echo -e "  ${WHITE}MODEL   :${NC} ${CYAN}${cpu_model:-N/A}${NC}"
+    echo -e "  ${WHITE}CORES   :${NC} ${CYAN}${cpu_cores}${NC}"
+    echo -e "  ${WHITE}USAGE   :${NC} ${YELLOW}${cpu_usage:-N/A}%${NC}"
+    echo -e "  ${WHITE}LOAD    :${NC} ${CYAN}${load_avg}${NC}"
+    echo ""
+
+    echo -e "\E[44;1;37m  MEMORY INFORMATION  \E[0m"
+    echo -e "  ${WHITE}RAM TOTAL :${NC} ${CYAN}${ram_total}${NC}"
+    echo -e "  ${WHITE}RAM USED  :${NC} ${YELLOW}${ram_used} (${ram_pct}%)${NC}"
+    echo -e "  ${WHITE}RAM FREE  :${NC} ${GREEN}${ram_free}${NC}"
+    echo -e "  ${WHITE}SWAP      :${NC} ${CYAN}${swap_used} / ${swap_total}${NC}"
+    echo ""
+
+    echo -e "\E[44;1;37m  DISK INFORMATION  \E[0m"
+    echo -e "  ${WHITE}TOTAL     :${NC} ${CYAN}${disk_total}${NC}"
+    echo -e "  ${WHITE}USED      :${NC} ${YELLOW}${disk_used} (${disk_pct})${NC}"
+    echo -e "  ${WHITE}FREE      :${NC} ${GREEN}${disk_free}${NC}"
+    echo ""
+
+    echo -e "\E[44;1;37m  SYSTEM INFORMATION  \E[0m"
+    echo -e "  ${WHITE}OS        :${NC} ${CYAN}${os_name}${NC}"
+    echo -e "  ${WHITE}KERNEL    :${NC} ${CYAN}${kernel}${NC}"
+    echo -e "  ${WHITE}UPTIME    :${NC} ${GREEN}${uptime_str}${NC}"
+    echo -e "  ${WHITE}PUBLIC IP :${NC} ${YELLOW}${public_ip}${NC}"
+    echo -e "  ${WHITE}LOCAL IP  :${NC} ${CYAN}${local_ip:-N/A}${NC}"
+    echo ""
+
+    echo -e "\E[44;1;37m  TUNNEL STATUS  \E[0m"
+    echo -ne "  ${WHITE}DNSTT     :${NC} "; echo -e "$dnstt_status"
+    echo -e "  ${WHITE}USERS     :${NC} ${GREEN}${users_online} ONLINE${NC}"
+    local cur_mtu cur_dom
+    cur_mtu=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "N/A")
+    cur_dom=$(cat "$INSTALL_DIR/tunnel_domain.txt" 2>/dev/null || echo "N/A")
+    echo -e "  ${WHITE}MTU       :${NC} ${CYAN}${cur_mtu}${NC}"
+    echo -e "  ${WHITE}DOMAIN    :${NC} ${CYAN}${cur_dom}${NC}"
+    echo ""
+
+    echo -e "\E[44;1;37m  OPEN PORTS  \E[0m"
+    echo -e "  ${CYAN}${open_ports:-N/A}${NC}"
+    echo ""
+
+    dsep
+    press_enter
+}
+
+#============================================================
+# ★ EXPIRED USERS AUTO-CLEANER
+#============================================================
+expired_users_cleaner() {
+    show_banner
+    dtitle "🧹 EXPIRED USERS AUTO-CLEANER"
+    dsep
+    echo ""
+
+    [[ ! -s "$USER_DB" ]] && { echo -e "${YELLOW}NO USERS FOUND${NC}"; press_enter; return; }
+
+    local current expired_list=()
+    current=$(date +%s)
+
+    while IFS='|' read -r user _ exp _ _ acc_status _rest; do
+        [[ -z "$user" ]] && continue
+        local exp_unix
+        exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo 0)
+        if [[ $current -gt $exp_unix ]]; then
+            expired_list+=("$user")
+        fi
+    done < "$USER_DB"
+
+    if [[ ${#expired_list[@]} -eq 0 ]]; then
+        echo -e "${GREEN}✅ NO EXPIRED USERS FOUND — ALL USERS ARE ACTIVE${NC}"
+        press_enter; return
+    fi
+
+    echo -e "${YELLOW}THE FOLLOWING USERS HAVE EXPIRED:${NC}"
+    echo ""
+    for u in "${expired_list[@]}"; do
+        echo -e "  ${RED}✗ $u${NC}"
+    done
+    echo ""
+    echo -e "${WHITE}TOTAL EXPIRED: ${RED}${#expired_list[@]}${NC}"
+    echo ""
+    dsep
+    echo ""
+    echo -e "  ${RED}1)${NC} DELETE ALL EXPIRED USERS NOW"
+    echo -e "  ${YELLOW}2)${NC} LOCK ALL EXPIRED USERS (KEEP ACCOUNTS)"
+    echo -e "  ${WHITE}0)${NC} CANCEL — GO BACK"
+    echo ""
+    read -rp "CHOICE: " clean_choice
+
+    case $clean_choice in
+        1)
+            echo ""
+            read -rp "TYPE 'yes' TO CONFIRM DELETION OF ${#expired_list[@]} USERS: " confirm
+            [[ "$confirm" != "yes" ]] && { echo -e "${YELLOW}CANCELLED${NC}"; press_enter; return; }
+            echo ""
+            local deleted=0
+            for u in "${expired_list[@]}"; do
+                fun_bar "pkill -u $u 2>/dev/null; userdel -r $u 2>/dev/null; sed -i \"/^$u|/d\" $USER_DB; rm -f $USAGE_DIR/$u $LIMITER_DIR/$u" "DELETING USER $u"
+                log_success "USER $u DELETED"
+                deleted=$((deleted+1))
+            done
+            update_motd_script
+            echo ""
+            log_success "CLEANUP COMPLETE: $deleted EXPIRED USERS DELETED"
+            ;;
+        2)
+            echo ""
+            local locked=0
+            for u in "${expired_list[@]}"; do
+                passwd -l "$u" 2>/dev/null
+                pkill -u "$u" 2>/dev/null || true
+                sed -i "/^$u|/s/|active|/|locked|/" "$USER_DB"
+                log_success "USER $u LOCKED"
+                locked=$((locked+1))
+            done
+            update_motd_script
+            echo ""
+            log_success "CLEANUP COMPLETE: $locked EXPIRED USERS LOCKED"
+            ;;
+        0) return ;;
+        *) log_error "INVALID CHOICE"; sleep 1 ;;
+    esac
+    press_enter
+}
+
+#============================================================
+# ★ SCRIPT AUTO-UPDATER
+#============================================================
+check_for_updates() {
+    show_banner
+    dtitle "🔄 SCRIPT AUTO-UPDATER"
+    dsep
+    echo ""
+
+    echo -e "${CYAN}CHECKING FOR UPDATES...${NC}"
+    echo ""
+
+    local latest_ver
+    latest_ver=$(curl -s --max-time 10 "$GITHUB_VER" 2>/dev/null | tr -d '[:space:]')
+
+    if [[ -z "$latest_ver" ]]; then
+        # Fallback: read version from script header
+        latest_ver=$(curl -s --max-time 10 "$GITHUB_RAW" 2>/dev/null | grep "^SCRIPT_VERSION=" | head -1 | cut -d'"' -f2)
+    fi
+
+    if [[ -z "$latest_ver" ]]; then
+        log_error "COULD NOT REACH GITHUB. CHECK INTERNET CONNECTION."
+        press_enter; return
+    fi
+
+    dbox_top
+    echo -e "  ${WHITE}CURRENT VERSION :${NC} ${YELLOW}v${SCRIPT_VERSION}${NC}"
+    echo -e "  ${WHITE}LATEST VERSION  :${NC} ${GREEN}v${latest_ver}${NC}"
+    dbox_bot
+    echo ""
+
+    if [[ "$latest_ver" == "$SCRIPT_VERSION" ]]; then
+        echo -e "${GREEN}✅ YOUR SCRIPT IS UP TO DATE!${NC}"
+        press_enter; return
+    fi
+
+    echo -e "${YELLOW}⚡ NEW VERSION AVAILABLE: v${SCRIPT_VERSION} → v${latest_ver}${NC}"
+    echo ""
+    read -rp "UPDATE NOW? [y/n]: " update_choice
+    [[ "${update_choice,,}" != "y" ]] && { echo -e "${YELLOW}UPDATE CANCELLED${NC}"; press_enter; return; }
+
+    echo ""
+    local script_path
+    script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    local tmp_update="/tmp/slowdns_update_$$.sh"
+
+    fun_bar "curl -s '$GITHUB_RAW' -o '$tmp_update'" "DOWNLOADING v${latest_ver}"
+
+    if [[ ! -s "$tmp_update" ]]; then
+        log_error "DOWNLOAD FAILED. TRY AGAIN LATER."
+        rm -f "$tmp_update"
+        press_enter; return
+    fi
+
+    if ! head -1 "$tmp_update" | grep -q "^#!/bin/bash"; then
+        log_error "DOWNLOADED FILE IS NOT A VALID BASH SCRIPT"
+        rm -f "$tmp_update"
+        press_enter; return
+    fi
+
+    cp "$script_path" "${script_path}.backup.$(date +%Y%m%d)" 2>/dev/null || true
+    mv "$tmp_update" "$script_path"
+    chmod +x "$script_path"
+
+    dbox_top
+    log_success "UPDATE COMPLETE! v${SCRIPT_VERSION} → v${latest_ver}"
+    echo -e "  ${WHITE}BACKUP SAVED AS:${NC} ${script_path}.backup.$(date +%Y%m%d)"
+    echo -e "  ${YELLOW}PLEASE RESTART THE SCRIPT TO USE THE NEW VERSION${NC}"
+    dbox_bot
+    echo ""
+    press_enter
+    exec bash "$script_path"
+}
+
+#============================================================
+# STATUS & INFO
+#============================================================
 view_status() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                 SERVICE STATUS                       ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "📡 SERVICE STATUS"
+    dsep
     echo ""
-    
+
     if systemctl is-active --quiet dnstt; then
         echo -e "${GREEN}✅ DNSTT: RUNNING (ULTRA v2 MODE 👑)${NC}"
-        
+        local uptime_sec
         uptime_sec=$(systemctl show dnstt --property=ActiveEnterTimestamp --value)
-        if [[ -n "$uptime_sec" ]]; then
-            echo -e "${WHITE}Started: ${GREEN}$uptime_sec${NC}"
-            
-            start_epoch=$(date -d "$uptime_sec" +%s 2>/dev/null || echo "0")
+        [[ -n "$uptime_sec" ]] && {
+            local start_epoch current_epoch uptime_seconds
+            start_epoch=$(date -d "$uptime_sec" +%s 2>/dev/null || echo 0)
             current_epoch=$(date +%s)
             uptime_seconds=$((current_epoch - start_epoch))
-            uptime_days=$((uptime_seconds / 86400))
-            uptime_hours=$(( (uptime_seconds % 86400) / 3600 ))
-            uptime_mins=$(( (uptime_seconds % 3600) / 60 ))
-            
-            echo -e "${WHITE}Uptime: ${GREEN}${uptime_days}d ${uptime_hours}h ${uptime_mins}m${NC}"
-        fi
-        
+            local ud=$((uptime_seconds / 86400))
+            local uh=$(( (uptime_seconds % 86400) / 3600 ))
+            local um=$(( (uptime_seconds % 3600) / 60 ))
+            echo -e "  ${WHITE}STARTED :${NC} ${GREEN}$uptime_sec${NC}"
+            echo -e "  ${WHITE}UPTIME  :${NC} ${GREEN}${ud}d ${uh}h ${um}m${NC}"
+        }
+        local DNSTT_PID
         DNSTT_PID=$(systemctl show dnstt --property=MainPID --value)
-        if [[ -n "$DNSTT_PID" && "$DNSTT_PID" != "0" ]]; then
-            NICE=$(ps -o nice= -p $DNSTT_PID 2>/dev/null || echo "N/A")
+        [[ -n "$DNSTT_PID" && "$DNSTT_PID" != "0" ]] && {
+            local CPU_PCT MEM_PCT
             CPU_PCT=$(ps -o %cpu= -p $DNSTT_PID 2>/dev/null | tr -d ' ' || echo "N/A")
             MEM_PCT=$(ps -o %mem= -p $DNSTT_PID 2>/dev/null | tr -d ' ' || echo "N/A")
-            echo -e "${WHITE}Process Priority: ${GREEN}$NICE (Realtime)${NC}"
-            echo -e "${WHITE}CPU Usage:        ${CYAN}${CPU_PCT}%${NC}"
-            echo -e "${WHITE}Memory Usage:     ${CYAN}${MEM_PCT}%${NC}"
-        fi
-        
-        CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "unknown")
-        TUNNEL_DOM=$(cat "$INSTALL_DIR/tunnel_domain.txt" 2>/dev/null || echo "unknown")
-        UDP_CONNS=$(ss -u state established 2>/dev/null | grep -c ':5300' || echo "0")
-        echo -e "${WHITE}Current MTU:      ${CYAN}${CURRENT_MTU} bytes${NC}"
-        echo -e "${WHITE}Tunnel Domain:    ${CYAN}${TUNNEL_DOM}${NC}"
-        echo -e "${WHITE}Active UDP conns: ${CYAN}${UDP_CONNS}${NC}"
+            echo -e "  ${WHITE}CPU     :${NC} ${CYAN}${CPU_PCT}%${NC}"
+            echo -e "  ${WHITE}MEMORY  :${NC} ${CYAN}${MEM_PCT}%${NC}"
+        }
     else
         echo -e "${RED}❌ DNSTT: STOPPED${NC}"
-        CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "unknown")
-        echo -e "${WHITE}Last MTU used: ${YELLOW}${CURRENT_MTU} bytes${NC}"
-        echo -e "${YELLOW}Tip: Use option 8 to restart, or option 11 to change MTU${NC}"
     fi
-    
+
+    local CURRENT_MTU TUNNEL_DOM UDP_CONNS
+    CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "N/A")
+    TUNNEL_DOM=$(cat "$INSTALL_DIR/tunnel_domain.txt" 2>/dev/null || echo "N/A")
+    UDP_CONNS=$(ss -u state established 2>/dev/null | grep -c ':5300' || echo "0")
+    echo -e "  ${WHITE}MTU     :${NC} ${CYAN}${CURRENT_MTU} BYTES${NC}"
+    echo -e "  ${WHITE}DOMAIN  :${NC} ${CYAN}${TUNNEL_DOM}${NC}"
+    echo -e "  ${WHITE}UDP     :${NC} ${CYAN}${UDP_CONNS} ACTIVE${NC}"
+
     echo ""
-    echo -e "${CYAN}━━━━━ Full Status ━━━━━${NC}"
-    systemctl status dnstt --no-pager -l | head -20
-    
-    echo ""
-    echo -e "${CYAN}━━━━━ Recent Logs ━━━━━${NC}"
+    dsep
+    echo -e "${CYAN}RECENT LOGS:${NC}"
     journalctl -u dnstt -n 10 --no-pager
-    
     press_enter
 }
 
 view_logs() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                    DNSTT LOGS                        ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "📋 DNSTT LOGS"
+    dsep
     echo ""
-    
-    echo -e "${YELLOW}Select log to view:${NC}"
+    echo -e "  ${CYAN}1)${NC} MAIN LOG"
+    echo -e "  ${CYAN}2)${NC} SERVER LOG"
+    echo -e "  ${CYAN}3)${NC} ERROR LOG"
+    echo -e "  ${CYAN}4)${NC} SYSTEM JOURNAL"
+    echo -e "  ${CYAN}5)${NC} LIVE TAIL (REAL-TIME)"
+    echo -e "  ${CYAN}6)${NC} LIMITER LOG"
+    echo -e "  ${WHITE}0)${NC} BACK"
     echo ""
-    echo -e "  ${CYAN}1)${NC} Main Log (dnstt.log)"
-    echo -e "  ${CYAN}2)${NC} Server Log (dnstt-server.log)"
-    echo -e "  ${CYAN}3)${NC} Error Log (dnstt-error.log)"
-    echo -e "  ${CYAN}4)${NC} System Journal (journalctl)"
-    echo -e "  ${CYAN}5)${NC} Live Tail (real-time)"
-    echo -e "  ${WHITE}0)${NC} Back"
-    echo ""
-    read -p "Choice: " log_choice
-    
+    read -rp "CHOICE: " log_choice
+
     case $log_choice in
-        1)
-            if [[ -f "$LOG_DIR/dnstt.log" ]]; then
-                less +G "$LOG_DIR/dnstt.log"
-            else
-                echo -e "${RED}Log file not found${NC}"
-            fi
-            ;;
-        2)
-            if [[ -f "$LOG_DIR/dnstt-server.log" ]]; then
-                less +G "$LOG_DIR/dnstt-server.log"
-            else
-                echo -e "${RED}Log file not found${NC}"
-            fi
-            ;;
-        3)
-            if [[ -f "$LOG_DIR/dnstt-error.log" ]]; then
-                less +G "$LOG_DIR/dnstt-error.log"
-            else
-                echo -e "${RED}No errors logged${NC}"
-            fi
-            ;;
-        4)
-            journalctl -u dnstt --no-pager -n 100
-            ;;
-        5)
-            echo -e "${YELLOW}Following logs in real-time (Ctrl+C to stop)...${NC}"
-            echo ""
-            tail -f "$LOG_DIR/dnstt-server.log" "$LOG_DIR/dnstt-error.log"
-            ;;
-        0)
-            return
-            ;;
-        *)
-            echo -e "${RED}Invalid choice${NC}"
-            sleep 1
-            ;;
+        1) [[ -f "$LOG_DIR/dnstt.log" ]] && less +G "$LOG_DIR/dnstt.log" || echo -e "${RED}LOG NOT FOUND${NC}" ;;
+        2) [[ -f "$LOG_DIR/dnstt-server.log" ]] && less +G "$LOG_DIR/dnstt-server.log" || echo -e "${RED}LOG NOT FOUND${NC}" ;;
+        3) [[ -f "$LOG_DIR/dnstt-error.log" ]] && less +G "$LOG_DIR/dnstt-error.log" || echo -e "${RED}NO ERRORS LOGGED${NC}" ;;
+        4) journalctl -u dnstt --no-pager -n 100 ;;
+        5) echo -e "${YELLOW}FOLLOWING LOGS (Ctrl+C TO STOP)...${NC}"; tail -f "$LOG_DIR/dnstt-server.log" "$LOG_DIR/dnstt-error.log" ;;
+        6) [[ -f "$LOG_DIR/limiter.log" ]] && less +G "$LOG_DIR/limiter.log" || echo -e "${RED}NO LIMITER LOG YET${NC}" ;;
+        0) return ;;
+        *) echo -e "${RED}INVALID CHOICE${NC}"; sleep 1 ;;
     esac
-    
     press_enter
 }
 
 view_info() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║            CONNECTION INFORMATION                    ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "🔗 CONNECTION INFORMATION"
+    dsep
     echo ""
-    
     if [[ -f "$INSTALL_DIR/connection_info.txt" ]]; then
         cat "$INSTALL_DIR/connection_info.txt"
     else
-        log_error "Not configured. Run installation first."
+        log_error "NOT CONFIGURED. RUN INSTALLATION FIRST."
     fi
-    
     press_enter
 }
 
 view_performance() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║        ULTRA v2 PERFORMANCE MONITORING               ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
-    echo -e "${YELLOW}━━━ SERVICE STATUS ━━━${NC}"
-    if systemctl is-active --quiet dnstt; then
-        echo -e "${GREEN}✅ DNSTT: RUNNING (ULTRA v2 MODE)${NC}"
-    else
-        echo -e "${RED}❌ DNSTT: STOPPED${NC}"
-    fi
-    echo ""
-    
-    echo -e "${YELLOW}━━━ TUNNEL CONFIG ━━━${NC}"
-    CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "unknown")
-    TUNNEL_DOM=$(cat "$INSTALL_DIR/tunnel_domain.txt" 2>/dev/null || echo "unknown")
-    SSH_P=$(cat "$INSTALL_DIR/ssh_port.txt" 2>/dev/null || echo "22")
-    echo -e "${WHITE}MTU Size:       ${CYAN}${CURRENT_MTU} bytes${NC}"
-    echo -e "${WHITE}Tunnel Domain:  ${CYAN}${TUNNEL_DOM}${NC}"
-    echo -e "${WHITE}SSH Port:       ${CYAN}${SSH_P}${NC}"
-    echo -e "${WHITE}Go Workers:     ${CYAN}GOMAXPROCS=4 (parallel DNS processing)${NC}"
+    dtitle "⚡ PERFORMANCE MONITOR"
+    dsep
     echo ""
 
-    echo -e "${YELLOW}━━━ ULTRA v2 SETTINGS ━━━${NC}"
-    echo -e "${GREEN}✓${NC} CPU Priority: Realtime (FIFO 99)"
-    echo -e "${GREEN}✓${NC} I/O Priority: Realtime (0)"
-    echo -e "${GREEN}✓${NC} Nice: -20 (highest)"
-    echo -e "${GREEN}✓${NC} CPU Quota: 3200% (32 cores)"
-    echo -e "${GREEN}✓${NC} Memory: 12GB"
-    echo -e "${GREEN}✓${NC} File Descriptors: 2M"
-    echo -e "${GREEN}✓${NC} GOMAXPROCS=4 (4 parallel Go workers)"
-    echo ""
-    
-    echo -e "${YELLOW}━━━ LIVE PROCESS STATS ━━━${NC}"
-    DNSTT_PID=$(systemctl show dnstt --property=MainPID --value 2>/dev/null || echo "0")
-    if [[ -n "$DNSTT_PID" && "$DNSTT_PID" != "0" ]]; then
-        CPU_PCT=$(ps -o %cpu= -p $DNSTT_PID 2>/dev/null | tr -d ' ' || echo "N/A")
-        MEM_MB=$(ps -o rss= -p $DNSTT_PID 2>/dev/null | awk '{printf "%.1f", $1/1024}' || echo "N/A")
-        THREADS=$(ps -o nlwp= -p $DNSTT_PID 2>/dev/null | tr -d ' ' || echo "N/A")
-        echo -e "${WHITE}PID:            ${CYAN}${DNSTT_PID}${NC}"
-        echo -e "${WHITE}CPU:            ${CYAN}${CPU_PCT}%${NC}"
-        echo -e "${WHITE}Memory:         ${CYAN}${MEM_MB} MB${NC}"
-        echo -e "${WHITE}Threads:        ${CYAN}${THREADS}${NC}"
-    else
-        echo -e "${RED}Process not running${NC}"
-    fi
+    echo -e "\E[44;1;37m  SERVICE STATUS  \E[0m"
+    systemctl is-active --quiet dnstt && echo -e "  ${GREEN}✅ DNSTT: RUNNING${NC}" || echo -e "  ${RED}❌ DNSTT: STOPPED${NC}"
     echo ""
 
-    echo -e "${YELLOW}━━━ NETWORK STATS ━━━${NC}"
-    if command -v ss &> /dev/null; then
-        UDP_CONNS=$(ss -u state established 2>/dev/null | grep -c ':5300' || echo "0")
-        UDP_ALL=$(ss -u 2>/dev/null | grep -c ':5300' || echo "0")
-        echo -e "${WHITE}UDP Active (5300):  ${CYAN}$UDP_CONNS${NC}"
-        echo -e "${WHITE}UDP Total (5300):   ${CYAN}$UDP_ALL${NC}"
-    fi
-    
-    RMEM_MAX=$(sysctl -n net.core.rmem_max 2>/dev/null || echo "0")
-    UDP_RMEM=$(sysctl -n net.ipv4.udp_rmem_min 2>/dev/null || echo "0")
+    echo -e "\E[44;1;37m  OPTIMIZATIONS  \E[0m"
+    local bbr cpu_cores load_avg
+    bbr=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "N/A")
+    local RMEM_MB UDP_KB BACKLOG
+    RMEM_MB=$(( $(sysctl -n net.core.rmem_max 2>/dev/null || echo 0) / 1048576 ))
+    UDP_KB=$(( $(sysctl -n net.ipv4.udp_rmem_min 2>/dev/null || echo 0) / 1024 ))
     BACKLOG=$(sysctl -n net.core.netdev_max_backlog 2>/dev/null || echo "0")
-    BBR=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "N/A")
-    
-    RMEM_MB=$((RMEM_MAX / 1048576))
-    UDP_KB=$((UDP_RMEM / 1024))
-    
-    echo -e "${WHITE}Network Buffer:     ${GREEN}${RMEM_MB}MB${NC}"
-    echo -e "${WHITE}UDP Buffer:         ${GREEN}${UDP_KB}KB${NC}"
-    echo -e "${WHITE}Packet Backlog:     ${GREEN}${BACKLOG}${NC}"
-    echo -e "${WHITE}Congestion Control: ${GREEN}${BBR}${NC}"
+    echo -e "  ${WHITE}CONGESTION CONTROL :${NC} ${GREEN}${bbr}${NC}"
+    echo -e "  ${WHITE}NETWORK BUFFER     :${NC} ${GREEN}${RMEM_MB}MB${NC}"
+    echo -e "  ${WHITE}UDP BUFFER         :${NC} ${GREEN}${UDP_KB}KB${NC}"
+    echo -e "  ${WHITE}PACKET BACKLOG     :${NC} ${GREEN}${BACKLOG}${NC}"
     echo ""
-    
-    echo -e "${YELLOW}━━━ SYSTEM RESOURCES ━━━${NC}"
-    MEM_TOTAL=$(free -h | awk '/^Mem:/ {print $2}')
-    MEM_USED=$(free -h | awk '/^Mem:/ {print $3}')
+
+    echo -e "\E[44;1;37m  CONNECTIONS  \E[0m"
+    local UDP_CONNS
+    UDP_CONNS=$(ss -u state established 2>/dev/null | grep -c ':5300' || echo "0")
+    echo -e "  ${WHITE}UDP ACTIVE (5300) :${NC} ${CYAN}$UDP_CONNS${NC}"
+    echo -e "  ${WHITE}SSH SESSIONS     :${NC} ${CYAN}$(who 2>/dev/null | wc -l)${NC}"
+    echo ""
+
+    echo -e "\E[44;1;37m  SYSTEM RESOURCES  \E[0m"
+    local MEM_TOTAL MEM_USED CPU_CORES LOAD
+    MEM_TOTAL=$(free -h | awk '/^Mem:/{print $2}')
+    MEM_USED=$(free -h | awk '/^Mem:/{print $3}')
     CPU_CORES=$(nproc 2>/dev/null || echo "?")
     LOAD=$(uptime | awk -F'load average:' '{print $2}' | tr -d ' ')
-    echo -e "${WHITE}Memory:     ${CYAN}${MEM_USED}/${MEM_TOTAL}${NC}"
-    echo -e "${WHITE}CPU Cores:  ${CYAN}${CPU_CORES}${NC}"
-    echo -e "${WHITE}Load Avg:   ${CYAN}${LOAD}${NC}"
+    echo -e "  ${WHITE}MEMORY     :${NC} ${CYAN}${MEM_USED}/${MEM_TOTAL}${NC}"
+    echo -e "  ${WHITE}CPU CORES  :${NC} ${CYAN}${CPU_CORES}${NC}"
+    echo -e "  ${WHITE}LOAD AVG   :${NC} ${CYAN}${LOAD}${NC}"
     echo ""
-    
+
     press_enter
 }
 
 bandwidth_test() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                 BANDWIDTH TEST                       ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "📶 BANDWIDTH TEST"
+    dsep
     echo ""
-    
+
     if ! systemctl is-active --quiet dnstt; then
-        log_error "DNSTT service is not running"
-        press_enter
-        return
-    fi
-    
-    CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "unknown")
-    echo -e "${YELLOW}Testing bandwidth for 30 seconds...${NC}"
-    echo -e "${CYAN}Monitoring UDP traffic on port 5300${NC}"
-    echo -e "${WHITE}Current MTU: ${CYAN}${CURRENT_MTU} bytes${NC}"
-    echo ""
-
-    NET_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -1)
-    if [[ -z "$NET_INTERFACE" ]]; then
-        log_error "Could not detect network interface"
-        press_enter
-        return
+        log_error "DNSTT SERVICE IS NOT RUNNING"
+        press_enter; return
     fi
 
-    echo -e "${WHITE}Interface: ${CYAN}$NET_INTERFACE${NC}"
+    local NET_IF
+    NET_IF=$(ip route | grep default | awk '{print $5}' | head -1)
+    [[ -z "$NET_IF" ]] && { log_error "COULD NOT DETECT NETWORK INTERFACE"; press_enter; return; }
+
+    local CURRENT_MTU
+    CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "N/A")
+
+    echo -e "${YELLOW}TESTING BANDWIDTH FOR 30 SECONDS...${NC}"
+    echo -e "${WHITE}MTU: ${CYAN}${CURRENT_MTU}  |  INTERFACE: ${CYAN}$NET_IF${NC}"
     echo ""
 
-    RX1=$(cat /sys/class/net/$NET_INTERFACE/statistics/rx_bytes)
-    TX1=$(cat /sys/class/net/$NET_INTERFACE/statistics/tx_bytes)
-    PREV_RX=$RX1
-    PREV_TX=$TX1
-    PEAK_RX=0
-    PEAK_TX=0
+    local RX1 TX1 PREV_RX PREV_TX PEAK_RX=0 PEAK_TX=0
+    RX1=$(cat /sys/class/net/$NET_IF/statistics/rx_bytes)
+    TX1=$(cat /sys/class/net/$NET_IF/statistics/tx_bytes)
+    PREV_RX=$RX1; PREV_TX=$TX1
 
-    printf "  %-5s  %-14s  %-14s  %s\n" "SEC" "DOWN (Kbps)" "UP (Kbps)" "TOTAL"
-    echo -e "  ${DIM}------------------------------------------------${NC}"
+    printf "  ${WHITE}%-5s  %-14s  %-14s  %s${NC}\n" "SEC" "DOWN (Kbps)" "UP (Kbps)" "TOTAL"
+    dsep_s
 
     for i in $(seq 1 30); do
         sleep 1
-        CUR_RX=$(cat /sys/class/net/$NET_INTERFACE/statistics/rx_bytes)
-        CUR_TX=$(cat /sys/class/net/$NET_INTERFACE/statistics/tx_bytes)
+        local CUR_RX CUR_TX DIFF_RX DIFF_TX DIFF_TOT COL
+        CUR_RX=$(cat /sys/class/net/$NET_IF/statistics/rx_bytes)
+        CUR_TX=$(cat /sys/class/net/$NET_IF/statistics/tx_bytes)
         DIFF_RX=$(( (CUR_RX - PREV_RX) * 8 / 1000 ))
         DIFF_TX=$(( (CUR_TX - PREV_TX) * 8 / 1000 ))
         DIFF_TOT=$(( DIFF_RX + DIFF_TX ))
         [ $DIFF_RX -gt $PEAK_RX ] && PEAK_RX=$DIFF_RX
         [ $DIFF_TX -gt $PEAK_TX ] && PEAK_TX=$DIFF_TX
-        if [ $DIFF_TOT -gt 5000 ]; then
-            COL="${GREEN}"
-        elif [ $DIFF_TOT -gt 1000 ]; then
-            COL="${YELLOW}"
-        else
-            COL="${RED}"
-        fi
-        printf "  ${CYAN}%-5s${NC}  ${COL}%-14s${NC}  ${COL}%-14s${NC}  ${COL}%s Kbps${NC}\n" \
-               "${i}s" "${DIFF_RX}" "${DIFF_TX}" "${DIFF_TOT}"
-        PREV_RX=$CUR_RX
-        PREV_TX=$CUR_TX
+        [ $DIFF_TOT -gt 5000 ] && COL="${GREEN}" || { [ $DIFF_TOT -gt 1000 ] && COL="${YELLOW}" || COL="${RED}"; }
+        printf "  ${CYAN}%-5s${NC}  ${COL}%-14s${NC}  ${COL}%-14s${NC}  ${COL}%s Kbps${NC}\n" "${i}s" "${DIFF_RX}" "${DIFF_TX}" "${DIFF_TOT}"
+        PREV_RX=$CUR_RX; PREV_TX=$CUR_TX
     done
 
-    RX2=$(cat /sys/class/net/$NET_INTERFACE/statistics/rx_bytes)
-    TX2=$(cat /sys/class/net/$NET_INTERFACE/statistics/tx_bytes)
-    RX_BYTES=$(( RX2 - RX1 ))
-    TX_BYTES=$(( TX2 - TX1 ))
-    RX_MBPS=$(echo "scale=2; $RX_BYTES * 8 / 30 / 1000000" | bc)
-    TX_MBPS=$(echo "scale=2; $TX_BYTES * 8 / 30 / 1000000" | bc)
-    PEAK_RX_MBPS=$(echo "scale=2; $PEAK_RX / 1000" | bc)
-    PEAK_TX_MBPS=$(echo "scale=2; $PEAK_TX / 1000" | bc)
-    RX_MB=$(echo "scale=2; $RX_BYTES / 1048576" | bc)
-    TX_MB=$(echo "scale=2; $TX_BYTES / 1048576" | bc)
+    local RX2 TX2 RX_MBPS TX_MBPS PEAK_RX_MBPS PEAK_TX_MBPS
+    RX2=$(cat /sys/class/net/$NET_IF/statistics/rx_bytes)
+    TX2=$(cat /sys/class/net/$NET_IF/statistics/tx_bytes)
+    RX_MBPS=$(echo "scale=2; ($RX2-$RX1)*8/30/1000000" | bc)
+    TX_MBPS=$(echo "scale=2; ($TX2-$TX1)*8/30/1000000" | bc)
+    PEAK_RX_MBPS=$(echo "scale=2; $PEAK_RX/1000" | bc)
+    PEAK_TX_MBPS=$(echo "scale=2; $PEAK_TX/1000" | bc)
 
     echo ""
-    echo -e "${GREEN}━━━ TEST RESULTS ━━━${NC}"
-    echo ""
-    echo -e "${WHITE}Download:${NC}"
-    echo -e "  Avg Rate: ${GREEN}${RX_MBPS} Mbps${NC}"
-    echo -e "  Peak:     ${CYAN}${PEAK_RX_MBPS} Mbps${NC}"
-    echo -e "  Total:    ${CYAN}${RX_MB} MB${NC}"
-    echo ""
-    echo -e "${WHITE}Upload:${NC}"
-    echo -e "  Avg Rate: ${GREEN}${TX_MBPS} Mbps${NC}"
-    echo -e "  Peak:     ${CYAN}${PEAK_TX_MBPS} Mbps${NC}"
-    echo -e "  Total:    ${CYAN}${TX_MB} MB${NC}"
-    echo ""
-    echo -e "${WHITE}MTU Used: ${CYAN}${CURRENT_MTU} bytes${NC}"
-    echo ""
-
-    TOTAL_MBPS=$(echo "$RX_MBPS + $TX_MBPS" | bc)
-
-    if (( $(echo "$TOTAL_MBPS >= 10" | bc -l) )); then
-        echo -e "${GREEN}✅ Performance: EXCELLENT (${TOTAL_MBPS} Mbps — target achieved!)${NC}"
-    elif (( $(echo "$TOTAL_MBPS >= 5" | bc -l) )); then
-        echo -e "${YELLOW}⚠️  Performance: GOOD (${TOTAL_MBPS} Mbps)${NC}"
-        echo -e "${YELLOW}   Tip: Use option 11 (Change MTU) to try a larger size${NC}"
-    elif (( $(echo "$TOTAL_MBPS >= 1" | bc -l) )); then
-        echo -e "${YELLOW}⚠️  Performance: LOW (${TOTAL_MBPS} Mbps)${NC}"
-        echo -e "${YELLOW}   Tip: Use option 11 → Choose 0 (Auto-detect MTU)${NC}"
-        echo -e "${YELLOW}   Current MTU: ${CURRENT_MTU}B — auto-detect finds optimal size${NC}"
-    else
-        echo -e "${RED}❌ Performance: VERY LOW (${TOTAL_MBPS} Mbps)${NC}"
-        echo -e "${RED}   Action: Go to option 11 → Choose 0 (Auto-detect MTU)${NC}"
-        echo -e "${RED}   This will test your network and set the correct MTU automatically${NC}"
-    fi
-    
+    dsep
+    echo -e "${WHITE}DOWNLOAD: ${GREEN}${RX_MBPS} Mbps  ${WHITE}PEAK: ${CYAN}${PEAK_RX_MBPS} Mbps${NC}"
+    echo -e "${WHITE}UPLOAD  : ${GREEN}${TX_MBPS} Mbps  ${WHITE}PEAK: ${CYAN}${PEAK_TX_MBPS} Mbps${NC}"
+    dsep
     press_enter
 }
 
 change_mtu() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║              CHANGE MTU SIZE                          ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "📊 CHANGE MTU SIZE"
+    dsep
     echo ""
 
-    if [[ ! -f "$INSTALL_DIR/mtu.txt" ]]; then
-        log_error "DNSTT not installed yet"
-        press_enter
-        return
-    fi
-
-    CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "unknown")
-    echo -e "${YELLOW}Current MTU: ${CYAN}${CURRENT_MTU} bytes${NC}"
+    [[ ! -f "$INSTALL_DIR/mtu.txt" ]] && { log_error "DNSTT NOT INSTALLED YET"; press_enter; return; }
+    local CURRENT_MTU
+    CURRENT_MTU=$(cat "$INSTALL_DIR/mtu.txt")
+    echo -e "${YELLOW}CURRENT MTU: ${CYAN}${CURRENT_MTU} BYTES${NC}"
     echo ""
-    echo -e "  ${GREEN}0)${NC} ${GREEN}AUTO-DETECT - Test your network now ⭐⭐⭐${NC}"
-    echo -e "  ${CYAN}1)${NC} 192   - Low MTU (strict carriers)"
-    echo -e "  ${CYAN}2)${NC} 256   - Low-Medium"
-    echo -e "  ${CYAN}3)${NC} 512   - Classic DNS"
-    echo -e "  ${CYAN}4)${NC} 1024  - Standard"
-    echo -e "  ${CYAN}5)${NC} 1232  - EDNS0 Standard"
-    echo -e "  ${CYAN}6)${NC} 1280  - High Speed"
-    echo -e "  ${CYAN}7)${NC} 1420  - Very High Speed"
-    echo -e "  ${CYAN}8)${NC} 4096  - EDNS0 Maximum"
+    echo -e "  ${GREEN}0)${NC} AUTO-DETECT — TEST YOUR NETWORK ⭐⭐⭐"
+    echo -e "  ${CYAN}1)${NC} 192   — LOW MTU"
+    echo -e "  ${CYAN}2)${NC} 256   — LOW-MEDIUM"
+    echo -e "  ${CYAN}3)${NC} 512   — CLASSIC DNS"
+    echo -e "  ${CYAN}4)${NC} 1024  — STANDARD"
+    echo -e "  ${CYAN}5)${NC} 1232  — EDNS0 STANDARD"
+    echo -e "  ${CYAN}6)${NC} 1280  — HIGH SPEED"
+    echo -e "  ${CYAN}7)${NC} 1420  — VERY HIGH SPEED"
+    echo -e "  ${CYAN}8)${NC} 4096  — EDNS0 MAXIMUM"
     echo -e "  ${YELLOW}9)${NC} CUSTOM (64-4096)"
     echo ""
-    read -p "Choice [0-9]: " mtu_choice
+    read -rp "CHOICE [0-9]: " mtu_choice
 
-    NEW_MTU=0
+    local NEW_MTU=0
     case ${mtu_choice} in
         0)
             echo ""
-            echo -e "${CYAN}Auto-detecting best MTU...${NC}"
-            echo ""
-            if ! command -v dig &>/dev/null; then
-                apt-get install -y -qq dnsutils > /dev/null 2>&1 || true
-            fi
-            BEST_MTU=0; BEST_SCORE=0
-            TEST_SIZES=(64 128 192 256 320 384 448 512 576 640 768 1024 1280 1420 1480)
-            printf "  %-8s  %-10s  %-6s  %s
-" "MTU" "RTT(avg)" "OK/5" "STATUS"
-            echo -e "  ${DIM}--------------------------------------------${NC}"
+            echo -e "${CYAN}AUTO-DETECTING BEST MTU...${NC}"
+            command -v dig &>/dev/null || apt-get install -y -qq dnsutils >/dev/null 2>&1 || true
+            local BEST_MTU=0 BEST_SCORE=0
+            local TEST_SIZES=(64 128 192 256 320 384 512 640 768 1024 1280 1420 1480)
+            printf "  %-8s  %-10s  %-6s  %s\n" "MTU" "RTT(AVG)" "OK/5" "STATUS"
+            dsep_s
             for TEST_MTU in "${TEST_SIZES[@]}"; do
-                PAD=$(( TEST_MTU - 29 )); [ $PAD -lt 1 ] && PAD=1
-                LABEL=""; REM=$PAD
+                local PAD=$(( TEST_MTU - 29 )); [ $PAD -lt 1 ] && PAD=1
+                local LABEL="" REM=$PAD
                 while [ $REM -gt 0 ]; do
-                    SEG=$REM; [ $SEG -gt 63 ] && SEG=63
+                    local SEG=$REM; [ $SEG -gt 63 ] && SEG=63
                     LABEL+=$(printf 'x%.0s' $(seq 1 $SEG))
                     REM=$(( REM - SEG ))
                     [ $REM -gt 0 ] && LABEL+="."
                 done
-                TEST_DOMAIN="${LABEL}.google.com"
-                TOTAL=0; OK=0; FAIL=0
+                local TOTAL=0 OK=0 FAIL=0
                 for r in 1 2 3 4 5; do
+                    local T0 T1 OUT
                     T0=$(date +%s%3N)
-                    OUT=$(dig +time=2 +tries=1 +udp "@8.8.8.8" A "$TEST_DOMAIN" 2>/dev/null)
+                    OUT=$(dig +time=2 +tries=1 +udp "@8.8.8.8" A "${LABEL}.google.com" 2>/dev/null)
                     T1=$(date +%s%3N)
-                    if echo "$OUT" | grep -qE "status: (NOERROR|NXDOMAIN)"; then
-                        TOTAL=$(echo "$TOTAL + ($T1 - $T0)" | bc)
-                        (( OK++ ))
-                    else
-                        (( FAIL++ ))
-                    fi
+                    echo "$OUT" | grep -qE "status: (NOERROR|NXDOMAIN)" && { TOTAL=$(echo "$TOTAL + ($T1 - $T0)" | bc); ((OK++)); } || ((FAIL++))
                 done
                 if [ $OK -gt 0 ]; then
+                    local AVG SCORE STATUS_STR
                     AVG=$(echo "scale=0; $TOTAL / $OK" | bc)
                     SCORE=$(echo "scale=0; ($TEST_MTU * $OK * 10) / ($AVG + 1)" | bc 2>/dev/null || echo 0)
-                    STATUS="${GREEN}[+] OK${NC}"; [ $FAIL -gt 0 ] && STATUS="${YELLOW}[~] PARTIAL${NC}"
+                    STATUS_STR="${GREEN}[+] OK${NC}"; [ $FAIL -gt 0 ] && STATUS_STR="${YELLOW}[~] PARTIAL${NC}"
                     printf "  %-8s  %-10s  %-6s  " "${TEST_MTU}B" "${AVG}ms" "${OK}/5"
-                    echo -e "$STATUS"
-                    if [ "$SCORE" -gt "$BEST_SCORE" ]; then BEST_SCORE=$SCORE; BEST_MTU=$TEST_MTU; fi
+                    echo -e "$STATUS_STR"
+                    [ "$SCORE" -gt "$BEST_SCORE" ] && { BEST_SCORE=$SCORE; BEST_MTU=$TEST_MTU; }
                 else
                     printf "  %-8s  %-10s  %-6s  " "${TEST_MTU}B" "timeout" "0/5"
                     echo -e "${RED}[X] NO RESPONSE${NC}"
                 fi
             done
             echo ""
-            if [ "$BEST_MTU" -gt 0 ]; then
-                NEW_MTU=$BEST_MTU
-                echo -e "${GREEN}✓ Best MTU: ${CYAN}${NEW_MTU} bytes${NC}"
-            else
-                echo -e "${RED}Could not detect MTU. No change made.${NC}"
-                press_enter; return
-            fi
+            [ "$BEST_MTU" -gt 0 ] && { NEW_MTU=$BEST_MTU; echo -e "${GREEN}✓ BEST MTU: ${CYAN}${NEW_MTU} BYTES${NC}"; } || { log_error "COULD NOT DETECT MTU"; press_enter; return; }
             ;;
-        1) NEW_MTU=192 ;;
-        2) NEW_MTU=256 ;;
-        3) NEW_MTU=512 ;;
-        4) NEW_MTU=1024 ;;
-        5) NEW_MTU=1232 ;;
-        6) NEW_MTU=1280 ;;
-        7) NEW_MTU=1420 ;;
-        8) NEW_MTU=4096 ;;
+        1) NEW_MTU=192 ;;  2) NEW_MTU=256 ;;
+        3) NEW_MTU=512 ;;  4) NEW_MTU=1024 ;;
+        5) NEW_MTU=1232 ;; 6) NEW_MTU=1280 ;;
+        7) NEW_MTU=1420 ;; 8) NEW_MTU=4096 ;;
         9)
-            echo ""
-            read -p "Enter MTU (64-4096): " custom_mtu
-            if [[ "$custom_mtu" =~ ^[0-9]+$ ]] && [ "$custom_mtu" -ge 64 ] && [ "$custom_mtu" -le 4096 ]; then
-                NEW_MTU=$custom_mtu
-            else
-                log_error "Invalid MTU. No change made."
-                press_enter; return
-            fi
+            read -rp "ENTER MTU (64-4096): " custom_mtu
+            [[ "$custom_mtu" =~ ^[0-9]+$ ]] && [ "$custom_mtu" -ge 64 ] && [ "$custom_mtu" -le 4096 ] && NEW_MTU=$custom_mtu || { log_error "INVALID MTU"; press_enter; return; }
             ;;
-        *)
-            log_error "Invalid choice. No change made."
-            press_enter; return
-            ;;
+        *) log_error "INVALID CHOICE"; press_enter; return ;;
     esac
 
-    if [ "$NEW_MTU" -eq 0 ]; then
-        press_enter; return
-    fi
+    [ "$NEW_MTU" -eq 0 ] && { press_enter; return; }
 
+    local TUNNEL_DOMAIN SSH_PORT_SAVED
     TUNNEL_DOMAIN=$(cat "$INSTALL_DIR/tunnel_domain.txt" 2>/dev/null || echo "")
     SSH_PORT_SAVED=$(cat "$INSTALL_DIR/ssh_port.txt" 2>/dev/null || echo "22")
-
-    if [[ -z "$TUNNEL_DOMAIN" ]]; then
-        log_error "Tunnel domain not found. Please reinstall."
-        press_enter; return
-    fi
+    [[ -z "$TUNNEL_DOMAIN" ]] && { log_error "TUNNEL DOMAIN NOT FOUND. PLEASE REINSTALL."; press_enter; return; }
 
     echo ""
-    echo -e "${CYAN}Applying new MTU: ${YELLOW}${NEW_MTU} bytes${NC}${CYAN} (was ${CURRENT_MTU})...${NC}"
+    echo -e "${CYAN}APPLYING NEW MTU: ${YELLOW}${NEW_MTU} BYTES${NC} ${CYAN}(WAS ${CURRENT_MTU})...${NC}"
     echo "$NEW_MTU" > "$INSTALL_DIR/mtu.txt"
     create_service "$TUNNEL_DOMAIN" "$NEW_MTU" "$SSH_PORT_SAVED"
     systemctl daemon-reload
@@ -3070,102 +2508,77 @@ change_mtu() {
     sleep 2
 
     if systemctl is-active --quiet dnstt; then
-        log_success "MTU changed to ${NEW_MTU} bytes — service restarted"
-        # Apply 512B-specific optimizations if new MTU is small
-        if [ "$NEW_MTU" -le 512 ]; then
-            echo ""
-            echo -e "${YELLOW}MTU ≤ 512 — applying small-packet optimizations...${NC}"
-            optimize_for_512
-        fi
+        log_success "MTU CHANGED TO ${NEW_MTU} BYTES — SERVICE RESTARTED"
+        [ "$NEW_MTU" -le 512 ] && optimize_for_512
     else
-        log_error "Service failed after MTU change. Check logs."
+        log_error "SERVICE FAILED AFTER MTU CHANGE"
         journalctl -u dnstt -n 10 --no-pager
     fi
-
     press_enter
 }
 
 fix_domain() {
     show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║                 FIX DOMAIN ISSUE                     ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    dtitle "🔧 FIX DOMAIN ISSUE"
+    dsep
     echo ""
-    
-    if [[ ! -f "$INSTALL_DIR/tunnel_domain.txt" ]]; then
-        log_error "No configuration found"
-        press_enter
-        return
-    fi
-    
-    echo -e "${YELLOW}Current domain:${NC}"
+
+    [[ ! -f "$INSTALL_DIR/tunnel_domain.txt" ]] && { log_error "NO CONFIGURATION FOUND"; press_enter; return; }
+
+    echo -e "${YELLOW}CURRENT DOMAIN:${NC}"
     cat "$INSTALL_DIR/tunnel_domain.txt"
     echo ""
-    
-    echo -e "${WHITE}Enter the CORRECT tunnel domain:${NC}"
-    echo -e "${CYAN}Example: t.yourdomain.com${NC}"
+    echo -e "${WHITE}ENTER THE CORRECT TUNNEL DOMAIN:${NC}"
+    echo -e "${CYAN}EXAMPLE: t.yourdomain.com${NC}"
     echo ""
-    read -p "Correct tunnel domain: " correct_domain
-    
-    if [[ -z "$correct_domain" ]]; then
-        log_error "Domain required"
-        press_enter
-        return
-    fi
-    
-    correct_domain=$(echo "$correct_domain" | sed 's/\.\.*/./g' | sed 's/\.$//')
-    
+    read -rp "CORRECT TUNNEL DOMAIN: " correct_domain
+    [[ -z "$correct_domain" ]] && { log_error "DOMAIN REQUIRED"; press_enter; return; }
+
+    correct_domain=$(echo "$correct_domain" | sed 's/\.\.*/./g; s/\.$//')
+    local MTU SSH_PORT
     MTU=$(cat "$INSTALL_DIR/mtu.txt" 2>/dev/null || echo "1420")
     SSH_PORT=$(cat "$INSTALL_DIR/ssh_port.txt" 2>/dev/null || echo "22")
-    
+
     echo "$correct_domain" > "$INSTALL_DIR/tunnel_domain.txt"
-    
-    log_message "Recreating service with correct domain..."
     create_service "$correct_domain" "$MTU" "$SSH_PORT"
-    
     systemctl daemon-reload
     systemctl restart dnstt
-    
     sleep 2
-    
+
     if systemctl is-active --quiet dnstt; then
-        log_success "Fixed! Service is now running"
-        echo ""
-        echo -e "${WHITE}Tunnel Domain: ${YELLOW}$correct_domain${NC}"
+        log_success "FIXED! SERVICE IS RUNNING WITH DOMAIN: $correct_domain"
     else
-        log_error "Still failing. Check logs:"
+        log_error "STILL FAILING. CHECK LOGS:"
         journalctl -u dnstt -n 10 --no-pager
     fi
-    
     press_enter
 }
 
-#============================================
+#============================================================
 # MENUS
-#============================================
+#============================================================
 
 dnstt_menu() {
     while true; do
         show_banner
-        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║              DNSTT MANAGEMENT                        ║${NC}"
-        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        dtitle "🌐 DNSTT MANAGEMENT"
+        dsep
         echo ""
-        echo -e "  ${GREEN}1)${NC} Install/Setup DNSTT"
-        echo -e "  ${YELLOW}2)${NC} View Status"
-        echo -e "  ${YELLOW}3)${NC} View Connection Info"
-        echo -e "  ${CYAN}4)${NC} View Logs"
-        echo -e "  ${CYAN}5)${NC} Performance Monitor"
-        echo -e "  ${CYAN}6)${NC} Bandwidth Test"
-        echo -e "  ${PURPLE}7)${NC} Fix Domain Issue"
-        echo -e "  ${BLUE}8)${NC} Restart Service"
-        echo -e "  ${RED}9)${NC} Stop Service"
-        echo -e "  ${RED}10)${NC} Uninstall"
-        echo -e "  ${GREEN}11)${NC} Change MTU Size"
-        echo -e "  ${WHITE}0)${NC} Back"
+        echo -e "  ${GREEN}1)${NC}  📦 INSTALL / SETUP DNSTT"
+        echo -e "  ${YELLOW}2)${NC}  📡 VIEW STATUS"
+        echo -e "  ${YELLOW}3)${NC}  🔗 VIEW CONNECTION INFO"
+        echo -e "  ${CYAN}4)${NC}  📋 VIEW LOGS"
+        echo -e "  ${CYAN}5)${NC}  ⚡ PERFORMANCE MONITOR"
+        echo -e "  ${CYAN}6)${NC}  📶 BANDWIDTH TEST"
+        echo -e "  ${PURPLE}7)${NC}  🔧 FIX DOMAIN ISSUE"
+        echo -e "  ${BLUE}8)${NC}  🔄 RESTART SERVICE"
+        echo -e "  ${RED}9)${NC}  ⏹  STOP SERVICE"
+        echo -e "  ${RED}10)${NC} 🗑️  UNINSTALL DNSTT"
+        echo -e "  ${GREEN}11)${NC} 📊 CHANGE MTU SIZE"
+        echo -e "  ${WHITE}0)${NC}  ⬅️  BACK"
         echo ""
-        read -p "Choice: " choice
-        
+        read -rp "CHOICE: " choice
+
         case $choice in
             1) setup_dnstt ;;
             2) view_status ;;
@@ -3176,63 +2589,36 @@ dnstt_menu() {
             7) fix_domain ;;
             8)
                 echo ""
-                echo -e "${CYAN}Restarting DNSTT...${NC}"
-                systemctl restart dnstt
-                sleep 2
-                if systemctl is-active --quiet dnstt; then
-                    echo -e "${GREEN}✓ Service restarted${NC}"
-                else
-                    echo -e "${RED}✗ Service failed${NC}"
-                fi
+                echo -e "${CYAN}RESTARTING DNSTT...${NC}"
+                fun_bar "systemctl restart dnstt" "RESTARTING SERVICE"
+                sleep 1
+                systemctl is-active --quiet dnstt && echo -e "${GREEN}✓ SERVICE RESTARTED${NC}" || echo -e "${RED}✗ SERVICE FAILED${NC}"
                 sleep 2
                 ;;
             9)
                 echo ""
-                echo -e "${CYAN}Stopping DNSTT...${NC}"
+                echo -e "${CYAN}STOPPING DNSTT...${NC}"
                 systemctl stop dnstt
-                echo -e "${YELLOW}Service stopped${NC}"
+                echo -e "${YELLOW}SERVICE STOPPED${NC}"
                 sleep 2
                 ;;
             10)
                 echo ""
-                echo -e "${RED}⚠️  WARNING: Uninstall DNSTT${NC}"
+                echo -e "${RED}⚠ WARNING: UNINSTALL DNSTT${NC}"
                 echo ""
-                read -p "Type 'yes' to confirm: " confirm
+                read -rp "TYPE 'yes' TO CONFIRM: " confirm
                 if [[ "$confirm" == "yes" ]]; then
-                    echo ""
-                    echo -e "${CYAN}Uninstalling...${NC}"
-                    systemctl stop dnstt 2>/dev/null || true
-                    systemctl disable dnstt 2>/dev/null || true
-                    systemctl stop iptables-restore-dnstt 2>/dev/null || true
-                    systemctl disable iptables-restore-dnstt 2>/dev/null || true
-                    rm -f /etc/systemd/system/dnstt.service
-                    rm -f /etc/systemd/system/iptables-restore-dnstt.service
-                    rm -rf "$INSTALL_DIR" "$LOG_DIR"
-                    rm -f "$DNSTT_SERVER" "$DNSTT_CLIENT"
-                    rm -f /etc/sysctl.d/99-dnstt-ultra-v2.conf
-                    rm -f /etc/sysctl.d/99-dnstt-512b-tunnel.conf
-                    rm -f /etc/security/limits.d/99-dnstt-ultra-v2.conf
-                    rm -f /etc/iptables/rules.v4
-                    # Restore original sshd_config if backup exists
-                    if [[ -f /etc/ssh/sshd_config.backup ]]; then
-                        cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
-                        systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
-                        echo -e "${GREEN}✓ SSH config restored from backup${NC}"
-                    fi
-                    systemctl daemon-reload
-                    echo -e "${GREEN}✓ DNSTT fully uninstalled${NC}"
+                    fun_bar "systemctl stop dnstt 2>/dev/null; systemctl disable dnstt 2>/dev/null; rm -f /etc/systemd/system/dnstt.service; rm -rf $INSTALL_DIR $LOG_DIR; rm -f $DNSTT_SERVER $DNSTT_CLIENT; rm -f /etc/sysctl.d/99-dnstt-*.conf; rm -f /etc/security/limits.d/99-dnstt-*.conf; systemctl daemon-reload" "UNINSTALLING DNSTT"
+                    [[ -f /etc/ssh/sshd_config.backup ]] && { cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config; systemctl restart sshd 2>/dev/null || true; }
+                    echo -e "${GREEN}✓ DNSTT FULLY UNINSTALLED${NC}"
                     sleep 2
                 else
-                    echo -e "${YELLOW}Cancelled${NC}"
-                    sleep 1
+                    echo -e "${YELLOW}CANCELLED${NC}"; sleep 1
                 fi
                 ;;
             11) change_mtu ;;
             0) return ;;
-            *) 
-                log_error "Invalid choice"
-                sleep 1
-                ;;
+            *) log_error "INVALID CHOICE"; sleep 1 ;;
         esac
     done
 }
@@ -3241,51 +2627,45 @@ ssh_menu() {
     run_auto_renew 2>/dev/null
     while true; do
         show_banner
-        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║            SSH USER MANAGEMENT                       ║${NC}"
-        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        dtitle "👥 SSH USER MANAGEMENT"
+        dsep
         echo ""
 
         if [[ -s "$USER_DB" ]]; then
-            local total_users=$(grep -c . "$USER_DB" 2>/dev/null || echo 0)
-            local active_users=0
-            local locked_users=0
-            local auto_renew_count=0
-            local current=$(date +%s)
+            local total_users active_users locked_users auto_renew_count current
+            total_users=$(grep -c . "$USER_DB" 2>/dev/null || echo 0)
+            active_users=0; locked_users=0; auto_renew_count=0
+            current=$(date +%s)
 
-            while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger; do
+            while IFS='|' read -r user _ exp _ _ acc_status _ _ ar_days ar_trigger _; do
                 [[ -z "$user" ]] && continue
                 acc_status=${acc_status:-active}
                 ar_days=${ar_days:-0}
-                if [[ "$acc_status" == "locked" ]]; then
-                    locked_users=$((locked_users + 1))
-                    continue
-                fi
-                [[ "$ar_days" -gt 0 ]] && auto_renew_count=$((auto_renew_count + 1))
-                exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo "0")
-                if [[ $current -le $exp_unix ]]; then
-                    active_users=$((active_users + 1))
-                fi
+                [[ "$acc_status" == "locked" ]] && { locked_users=$((locked_users+1)); continue; }
+                [[ "$ar_days" -gt 0 ]] && auto_renew_count=$((auto_renew_count+1))
+                local exp_unix
+                exp_unix=$(date -d "$exp" +%s 2>/dev/null || echo 0)
+                [[ $current -le $exp_unix ]] && active_users=$((active_users+1))
             done < "$USER_DB"
 
             local expired=$(( total_users - active_users - locked_users ))
-            echo -e "  ${WHITE}📊 Total: ${CYAN}$total_users${NC}  |  ${GREEN}Active: $active_users${NC}  |  ${RED}Expired: $expired${NC}  |  ${YELLOW}Locked: $locked_users${NC}  |  ${GREEN}🔄 Auto: $auto_renew_count${NC}"
+            echo -e "  ${WHITE}TOTAL: ${CYAN}$total_users${NC}  |  ${GREEN}ACTIVE: $active_users${NC}  |  ${RED}EXPIRED: $expired${NC}  |  ${YELLOW}LOCKED: $locked_users${NC}  |  ${GREEN}🔄 AUTO: $auto_renew_count${NC}"
             echo ""
         fi
 
-        echo -e "  ${GREEN}1)${NC} 👤 Add New User"
-        echo -e "  ${CYAN}2)${NC} 📋 List All Users"
-        echo -e "  ${YELLOW}3)${NC} 🔄 Renew User (Manual)"
-        echo -e "  ${RED}4)${NC} 🔒 Lock User"
-        echo -e "  ${GREEN}5)${NC} 🔓 Unlock User"
-        echo -e "  ${PURPLE}6)${NC} 🖥️  SSH Banner / Server Message"
-        echo -e "  ${GREEN}7)${NC} ♻️  Auto-Renew Settings"
-        echo -e "  ${CYAN}8)${NC} 📊 Auto-Renew Status"
-        echo -e "  ${YELLOW}9)${NC} 💾 Backup & Restore"
-        echo -e "  ${RED}10)${NC} 🗑️  Delete User"
-        echo -e "  ${WHITE}0)${NC} ⬅️  Back"
+        echo -e "  ${GREEN}1)${NC}  👤 ADD NEW USER"
+        echo -e "  ${CYAN}2)${NC}  📋 LIST ALL USERS"
+        echo -e "  ${YELLOW}3)${NC}  🔄 RENEW USER"
+        echo -e "  ${RED}4)${NC}  🔒 LOCK USER"
+        echo -e "  ${GREEN}5)${NC}  🔓 UNLOCK USER"
+        echo -e "  ${PURPLE}6)${NC}  🖥️  SSH BANNER"
+        echo -e "  ${GREEN}7)${NC}  ♻️  AUTO-RENEW SETTINGS"
+        echo -e "  ${CYAN}8)${NC}  📊 AUTO-RENEW STATUS"
+        echo -e "  ${YELLOW}9)${NC}  💾 BACKUP & RESTORE"
+        echo -e "  ${RED}10)${NC} 🗑️  DELETE USER"
+        echo -e "  ${WHITE}0)${NC}  ⬅️  BACK"
         echo ""
-        read -p "Choice: " choice
+        read -rp "CHOICE: " choice
 
         case $choice in
             1)  add_ssh_user ;;
@@ -3299,138 +2679,115 @@ ssh_menu() {
             9)  manage_backup_restore ;;
             10) delete_ssh_user ;;
             0)  return ;;
-            *)
-                log_error "Invalid choice"
-                sleep 1
-                ;;
+            *)  log_error "INVALID CHOICE"; sleep 1 ;;
         esac
     done
 }
 
 system_menu() {
-    show_banner
-    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║               SYSTEM INFORMATION                     ║${NC}"
-    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
-    echo -e "${YELLOW}━━━ UPTIME ━━━${NC}"
-    uptime
-    echo ""
-    
-    echo -e "${YELLOW}━━━ MEMORY ━━━${NC}"
-    free -h
-    echo ""
-    
-    echo -e "${YELLOW}━━━ DISK ━━━${NC}"
-    df -h /
-    echo ""
-    
-    echo -e "${YELLOW}━━━ NETWORK ━━━${NC}"
-    ip -brief addr
-    echo ""
-    
-    echo -e "${YELLOW}━━━ OPTIMIZATIONS ━━━${NC}"
-    if [[ -f /etc/sysctl.d/99-dnstt-512b-tunnel.conf ]] || [[ -f /etc/sysctl.d/99-dnstt-ultra-v2.conf ]]; then
-        echo -e "${GREEN}✅ OPTIMIZATIONS ACTIVE${NC}"
-        echo -e "${GREEN}✓${NC} HYBLA congestion control (lossy-link tuned)"
-        echo -e "${GREEN}✓${NC} fq qdisc (no AQM early-drop)"
-        echo -e "${GREEN}✓${NC} UDP buffers: 8MB cap / 2MB floor per socket"
-        echo -e "${GREEN}✓${NC} NAPI: 300 pkts/cycle @ 1500µs (low interrupt latency)"
-        echo -e "${GREEN}✓${NC} SSH: chacha20-poly1305 + delayed compression"
-        echo -e "${GREEN}✓${NC} Process nice: -15 | FDs: 1M"
-        if [[ -f /etc/security/limits.d/99-dnstt-ultra-v2.conf ]]; then
-            echo -e "${GREEN}✓${NC} System-wide FD limits applied"
-        fi
-    else
-        echo -e "${YELLOW}⚠️  No optimizations applied yet (run Install first)${NC}"
-    fi
-    echo ""
-    
-    press_enter
+    while true; do
+        show_banner
+        dtitle "🖥️  SYSTEM TOOLS"
+        dsep
+        echo ""
+        echo -e "  ${CYAN}1)${NC}  📊 VPS INFO PANEL"
+        echo -e "  ${GREEN}2)${NC}  ⚙️  SERVER OPTIMIZER"
+        echo -e "  ${YELLOW}3)${NC}  👁️  SSH CONNECTION MONITOR"
+        echo -e "  ${PURPLE}4)${NC}  🔐 MULTI-LOGIN LIMITER"
+        echo -e "  ${RED}5)${NC}  🧹 EXPIRED USERS CLEANER"
+        echo -e "  ${BLUE}6)${NC}  🔄 SCRIPT AUTO-UPDATER"
+        echo -e "  ${WHITE}0)${NC}  ⬅️  BACK"
+        echo ""
+        read -rp "CHOICE: " choice
+
+        case $choice in
+            1) vps_info_panel ;;
+            2) server_optimizer ;;
+            3) ssh_monitor ;;
+            4) manage_limiter ;;
+            5) expired_users_cleaner ;;
+            6) check_for_updates ;;
+            0) return ;;
+            *) log_error "INVALID CHOICE"; sleep 1 ;;
+        esac
+    done
 }
 
 main_menu() {
     while true; do
         show_banner
-        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-        echo -e "${CYAN}║                   MAIN MENU                          ║${NC}"
-        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        dtitle "★ MAIN MENU ★"
+        dsep
         echo ""
-        echo -e "  ${GREEN}1)${NC} 🌐 DNSTT Management"
-        echo -e "  ${BLUE}2)${NC} 👥 SSH Users"
-        echo -e "  ${YELLOW}3)${NC} 📊 System Info"
-        echo -e "  ${RED}0)${NC} ⛔ Exit"
+        echo -e "  ${GREEN}1)${NC}  🌐 DNSTT MANAGEMENT"
+        echo -e "  ${BLUE}2)${NC}  👥 SSH USERS"
+        echo -e "  ${YELLOW}3)${NC}  🖥️  SYSTEM TOOLS"
+        echo -e "  ${RED}0)${NC}  ⛔ EXIT"
         echo ""
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${WHITE}Version: 8.0 ULTRA | ${RED}Created By MR BLACK KILLER${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        dsep
+        echo -e "  ${WHITE}VERSION: 9.0 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
+        echo -e "  ${WHITE}📱 WhatsApp: +255658785522${NC}"
+        dsep
         echo ""
-        read -p "Choice: " choice
-        
+        read -rp "CHOICE: " choice
+
         case $choice in
             1) dnstt_menu ;;
             2) ssh_menu ;;
             3) system_menu ;;
             0)
                 echo ""
-                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-                echo -e "${GREEN}    Thank you for using DNSTT ULTRA v2! 👑 💯${NC}"
-                echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+                dbox_top
+                echo -e "${BGREEN}   THANK YOU FOR USING BLACK KILLER SSH TUNNEL MANAGER! 👑${NC}"
+                echo -e "${WHITE}   📱 WhatsApp: +255658785522${NC}"
+                dbox_bot
                 echo ""
                 exit 0
                 ;;
-            *) 
-                log_error "Invalid choice"
+            *)
+                log_error "INVALID CHOICE"
                 sleep 1
                 ;;
         esac
     done
 }
 
-#============================================
-# CREATE MENU COMMAND
-#============================================
-
+#============================================================
+# CREATE MENU COMMANDS
+#============================================================
 create_menu_command() {
+    local SCRIPT_PATH
     SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    
-    cat > /usr/local/bin/menu << EOF
+
+    for cmd in menu dnstt slowdns; do
+        cat > "/usr/local/bin/$cmd" << EOF
 #!/bin/bash
-# DNSTT Menu - MR BLACK KILLER
+# BLACK KILLER SSH TUNNEL MANAGER
 bash "$SCRIPT_PATH"
 EOF
-    chmod +x /usr/local/bin/menu
-    
-    cat > /usr/local/bin/dnstt << EOF
-#!/bin/bash
-# DNSTT Command - MR BLACK KILLER
-bash "$SCRIPT_PATH"
-EOF
-    chmod +x /usr/local/bin/dnstt
-    
-    cat > /usr/local/bin/slowdns << EOF
-#!/bin/bash
-# SlowDNS Command - MR BLACK KILLER
-bash "$SCRIPT_PATH"
-EOF
-    chmod +x /usr/local/bin/slowdns
-    
-    log_success "Menu commands created: menu, dnstt, slowdns"
+        chmod +x "/usr/local/bin/$cmd"
+    done
+
+    log_success "MENU COMMANDS CREATED: menu, dnstt, slowdns"
 }
 
-#============================================
-# MAIN EXECUTION
-#============================================
-
-# Create menu command if needed
-if [[ ! -f /usr/local/bin/menu ]]; then
-    if [[ $EUID -eq 0 ]]; then
-        create_menu_command 2>/dev/null
+#============================================================
+# AUTOSTART LIMITER IF CONFIGURED
+#============================================================
+_autostart_limiter() {
+    if [[ -f /etc/slowdns/limiter_autostart ]]; then
+        if ! screen -list 2>/dev/null | grep -q "limiter_daemon"; then
+            screen -dmS limiter_daemon /etc/slowdns/limiter_daemon.sh 2>/dev/null || true
+        fi
     fi
-fi
+}
+
+#============================================================
+# MAIN EXECUTION
+#============================================================
+[[ ! -f /usr/local/bin/menu ]] && [[ $EUID -eq 0 ]] && create_menu_command 2>/dev/null
 
 check_root
 check_os
+_autostart_limiter
 main_menu
-        
