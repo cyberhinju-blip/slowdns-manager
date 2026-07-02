@@ -1,0 +1,1 @@
+- [SlowDNS Manager v9 design](slowdns-v9-design.md) — DB has 9 pipe-delimited fields; UI is diamond/CAPS English; push uses GITHUB_TOKEN secret to cyberhinju-blip/slowdns-manager
