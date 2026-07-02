@@ -86,11 +86,13 @@ press_enter() {
 # FUN_BAR — PROGRESS ANIMATION
 #============================================================
 fun_bar() {
+    # Accepts a STATIC shell command string (no user data interpolated here).
+    # Callers must never interpolate user/DB content directly into this string.
     local cmd="$1"
     local label="${2:-PLEASE WAIT...}"
     (
-        eval "$cmd" >/dev/null 2>&1
-        touch /tmp/fun_bar_done_$$
+        bash -c "$cmd" >/dev/null 2>&1
+        touch /tmp/fun_bar_done_$
     ) &
     local bg_pid=$!
     tput civis 2>/dev/null
@@ -2114,7 +2116,12 @@ expired_users_cleaner() {
             echo ""
             local deleted=0
             for u in "${expired_list[@]}"; do
-                fun_bar "pkill -u $u 2>/dev/null; userdel -r $u 2>/dev/null; sed -i \"/^$u|/d\" $USER_DB; rm -f $USAGE_DIR/$u $LIMITER_DIR/$u" "DELETING USER $u"
+                # Do NOT pass $u through fun_bar/eval — execute directly with quoted args
+                echo -ne "  ${BYELLOW}◇ DELETING USER $u ${WHITE}- ${BYELLOW}[${BRED}##################${BYELLOW}]${BGREEN} OK!${NC}\n"
+                pkill -u "$u" 2>/dev/null || true
+                userdel -r "$u" 2>/dev/null || true
+                sed -i "/^$(printf '%s' "$u" | sed 's/[[\.*^$()+?{}|]/\\&/g')|/d" "$USER_DB"
+                rm -f "$USAGE_DIR/$u" "$LIMITER_DIR/$u"
                 log_success "USER $u DELETED"
                 deleted=$((deleted+1))
             done
@@ -2196,10 +2203,25 @@ check_for_updates() {
         press_enter; return
     fi
 
+    # INTEGRITY CHECKS — verify the download is a legitimate script
     if ! head -1 "$tmp_update" | grep -q "^#!/bin/bash"; then
-        log_error "DOWNLOADED FILE IS NOT A VALID BASH SCRIPT"
-        rm -f "$tmp_update"
-        press_enter; return
+        log_error "INTEGRITY CHECK FAILED: NOT A VALID BASH SCRIPT"
+        rm -f "$tmp_update"; press_enter; return
+    fi
+    if ! grep -q "BLACK KILLER" "$tmp_update" 2>/dev/null; then
+        log_error "INTEGRITY CHECK FAILED: SIGNATURE NOT FOUND IN DOWNLOAD"
+        rm -f "$tmp_update"; press_enter; return
+    fi
+    if ! bash -n "$tmp_update" 2>/dev/null; then
+        log_error "INTEGRITY CHECK FAILED: SCRIPT HAS SYNTAX ERRORS"
+        rm -f "$tmp_update"; press_enter; return
+    fi
+    # Minimum size guard (real script must be > 50KB)
+    local file_size
+    file_size=$(wc -c < "$tmp_update")
+    if [[ "$file_size" -lt 50000 ]]; then
+        log_error "INTEGRITY CHECK FAILED: DOWNLOAD TOO SMALL (${file_size} bytes — possible truncation or redirect)"
+        rm -f "$tmp_update"; press_enter; return
     fi
 
     cp "$script_path" "${script_path}.backup.$(date +%Y%m%d)" 2>/dev/null || true
@@ -2637,7 +2659,8 @@ ssh_menu() {
             active_users=0; locked_users=0; auto_renew_count=0
             current=$(date +%s)
 
-            while IFS='|' read -r user _ exp _ _ acc_status _ _ ar_days ar_trigger _; do
+            while IFS='|' read -r user _ exp _ _ acc_status ar_days ar_trigger conn_limit; do
+                # DB: user|pass|exp|created|gb_limit|status|ar_days|ar_trigger|conn_limit
                 [[ -z "$user" ]] && continue
                 acc_status=${acc_status:-active}
                 ar_days=${ar_days:-0}
