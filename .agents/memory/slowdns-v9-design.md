@@ -34,4 +34,3 @@ Before replacing script: check shebang, grep "BLACK KILLER", `bash -n` syntax ch
 - Separators: `◇────────────────────────────────────────────────────────◇`
 - Boxes: `⋘═══════════════...⋙`
 - All menu text: CAPITAL LETTERS, English only
-- Phone in banner: +255658785522
