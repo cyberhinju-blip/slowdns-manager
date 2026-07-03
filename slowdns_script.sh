@@ -182,6 +182,35 @@ check_bash_version() {
 }
 
 #============================================================
+# SSH SAFETY HELPER — call after ANY sshd_config change
+#============================================================
+ensure_ssh_alive() {
+    # Validate config BEFORE reloading — never reload a broken config
+    if ! sshd -t 2>/dev/null; then
+        log_error "SSHD CONFIG TEST FAILED — ROLLING BACK TO BACKUP"
+        if [[ -f /etc/ssh/sshd_config.backup ]]; then
+            cp /etc/ssh/sshd_config.backup /etc/ssh/sshd_config
+            log_success "BACKUP RESTORED"
+        fi
+    fi
+
+    # Enable + restart SSH so it survives reboots and any prior failures
+    systemctl enable ssh  2>/dev/null || systemctl enable sshd  2>/dev/null || true
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || \
+        service ssh restart 2>/dev/null || true
+
+    # Verify SSH is actually listening
+    local _ssh_port
+    _ssh_port=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+    _ssh_port=${_ssh_port:-22}
+    if ss -tlnp 2>/dev/null | grep -q ":${_ssh_port}"; then
+        log_success "SSH SERVICE ALIVE — PORT ${_ssh_port} IS LISTENING"
+    else
+        log_error "WARNING: SSH NOT DETECTED ON PORT ${_ssh_port} — CHECK SERVICE STATUS"
+    fi
+}
+
+#============================================================
 # LOGGING
 #============================================================
 log_message() {
@@ -360,15 +389,18 @@ optimize_ssh_server() {
     log_message "${YELLOW}🔧 OPTIMIZING SSH SERVER...${NC}"
     local sshd_cfg="/etc/ssh/sshd_config"
 
+    # Always back up before touching sshd_config
     if [[ ! -f "${sshd_cfg}.backup" ]]; then
         cp "$sshd_cfg" "${sshd_cfg}.backup"
     fi
 
+    # NEVER touch the Port line — only tune performance settings
     local ciphers="chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com"
     local macs="hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com"
     local kex="curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512"
 
-    sed -i '/^Ciphers /d; /^MACs /d; /^KexAlgorithms /d; /^Compression /d; /^IPQoS /d' "$sshd_cfg"
+    # Remove old optimization lines only (never Port / AuthorizedKeysFile / etc.)
+    sed -i '/^Ciphers /d; /^MACs /d; /^KexAlgorithms /d; /^Compression /d; /^IPQoS /d; /^# BLACK KILLER/d' "$sshd_cfg"
     cat >> "$sshd_cfg" << EOF
 
 # BLACK KILLER SSH OPTIMIZATION v9.0
@@ -379,6 +411,15 @@ Compression delayed
 IPQoS lowdelay throughput
 EOF
 
+    # Test config before applying — roll back and abort if broken
+    if ! sshd -t 2>/dev/null; then
+        log_error "OPTIMIZED CONFIG FAILED SYNTAX TEST — ROLLING BACK"
+        cp "${sshd_cfg}.backup" "$sshd_cfg"
+        log_success "ORIGINAL CONFIG RESTORED — SSH UNCHANGED"
+        return 1
+    fi
+
+    # Safe reload (config passed test)
     systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
     log_success "SSH SERVER OPTIMIZED"
     sleep 1
@@ -521,6 +562,19 @@ configure_firewall() {
     NET_IF=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
     NET_IF=${NET_IF:-eth0}
 
+    # Detect the actual SSH port BEFORE touching any firewall rules
+    local CURR_SSH_PORT
+    CURR_SSH_PORT=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+    [[ -z "$CURR_SSH_PORT" || ! "$CURR_SSH_PORT" =~ ^[0-9]+$ ]] && CURR_SSH_PORT=22
+
+    # ── CRITICAL: Pin SSH ACCEPT as the very first iptables rule BEFORE any flush ──
+    # This survives UFW disable and the subsequent iptables -F because we re-add it
+    # immediately after. The gap between -F and re-add is microseconds with ACCEPT policy.
+    iptables -P INPUT ACCEPT   2>/dev/null || true
+    iptables -P OUTPUT ACCEPT  2>/dev/null || true
+    iptables -P FORWARD ACCEPT 2>/dev/null || true
+
+    # Disable UFW AFTER setting ACCEPT policy — UFW disable no longer creates a lockout window
     if command -v ufw &>/dev/null; then
         ufw --force disable 2>/dev/null || true
         systemctl stop ufw 2>/dev/null || true
@@ -538,26 +592,25 @@ configure_firewall() {
     sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
 
     modprobe nf_conntrack 2>/dev/null || true
-    iptables -F INPUT 2>/dev/null || true
-    iptables -F OUTPUT 2>/dev/null || true
-    iptables -F FORWARD 2>/dev/null || true
-    iptables -t nat -F 2>/dev/null || true
-    iptables -t mangle -F 2>/dev/null || true
-    # Delete non-built-in chains only (prevents "chain in use" errors)
-    iptables -X 2>/dev/null || true
 
-    iptables -P INPUT ACCEPT
-    iptables -P FORWARD ACCEPT
-    iptables -P OUTPUT ACCEPT
+    # Flush all chains — safe because default policy is now ACCEPT
+    iptables -F INPUT   2>/dev/null || true
+    iptables -F OUTPUT  2>/dev/null || true
+    iptables -F FORWARD 2>/dev/null || true
+    iptables -t nat    -F 2>/dev/null || true
+    iptables -t mangle -F 2>/dev/null || true
+    iptables -X        2>/dev/null || true
+
+    # ── SSH ACCEPT goes in FIRST — guaranteed slot 1 before anything else ──
+    iptables -I INPUT 1 -p tcp --dport "$CURR_SSH_PORT" -j ACCEPT
+    iptables -I INPUT 2 -p udp --dport 5300 -j ACCEPT
+    iptables -I INPUT 3 -p udp --dport 53  -j ACCEPT
 
     iptables -A INPUT -i lo -j ACCEPT
     iptables -A OUTPUT -o lo -j ACCEPT
     iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    iptables -I INPUT 1 -p udp --dport 5300 -j ACCEPT
-    iptables -I INPUT 2 -p udp --dport 53 -j ACCEPT
-    iptables -I INPUT 3 -p tcp --dport 22 -j ACCEPT
     iptables -A INPUT -p tcp --dport 443 -j ACCEPT
-    iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+    iptables -A INPUT -p tcp --dport 80  -j ACCEPT
     iptables -t nat -I PREROUTING 1 -p udp --dport 53 -j REDIRECT --to-ports 5300
     iptables -t nat -A POSTROUTING -o "$NET_IF" -j MASQUERADE
     iptables -A FORWARD -i lo -j ACCEPT
@@ -568,16 +621,22 @@ configure_firewall() {
 
     # Apply ip6tables rules only if available (not all VPS providers support IPv6)
     if command -v ip6tables &>/dev/null; then
-        ip6tables -I INPUT 1 -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
-        ip6tables -I INPUT 2 -p udp --dport 53 -j ACCEPT 2>/dev/null || true
+        ip6tables -P INPUT  ACCEPT 2>/dev/null || true
+        ip6tables -P OUTPUT ACCEPT 2>/dev/null || true
+        ip6tables -I INPUT 1 -p tcp --dport "$CURR_SSH_PORT" -j ACCEPT 2>/dev/null || true
+        ip6tables -I INPUT 2 -p udp --dport 5300 -j ACCEPT 2>/dev/null || true
+        ip6tables -I INPUT 3 -p udp --dport 53   -j ACCEPT 2>/dev/null || true
         ip6tables -t nat -I PREROUTING 1 -p udp --dport 53 -j REDIRECT --to-ports 5300 2>/dev/null || true
     fi
 
     mkdir -p /etc/iptables
     iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 
+    # ── Guarantee SSH service is alive after all firewall changes ──
+    ensure_ssh_alive
+
     log_success "FIREWALL CONFIGURED"
-    echo -e "  ${GREEN}✓${NC} UDP 53/5300 OPEN | TCP 22/80/443 OPEN | NAT MASQUERADE ON ${NET_IF}"
+    echo -e "  ${GREEN}✓${NC} SSH PORT ${CURR_SSH_PORT} OPEN | UDP 53/5300 OPEN | TCP 80/443 OPEN | NAT ON ${NET_IF}"
     sleep 1
 }
 
@@ -794,7 +853,7 @@ setup_dnstt() {
     fi
 
     PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || echo "YOUR_SERVER_IP")
-    PUBKEY=$(cat "$INSTALL_DIR/server.pub")
+    PUBKEY=$(cat "$INSTALL_DIR/server.pub" 2>/dev/null || echo "KEY_NOT_FOUND — RUN: cat /etc/dnstt/server.pub")
 
     echo ""
     dbox_top
@@ -846,6 +905,15 @@ dnstt-client -doh https://cloudflare-dns.com/dns-query -pubkey $PUBKEY -mtu $MTU
 EOF
 
     log_success "INFO SAVED: $INSTALL_DIR/connection_info.txt"
+
+    # ── Guarantee SSH stays alive after full setup ──
+    echo ""
+    echo -e "${CYAN}◇──────────────────────────────────────────────◇${NC}"
+    echo -e "  ${YELLOW}🔒 ENSURING SSH SERVICE IS ALIVE...${NC}"
+    ensure_ssh_alive
+    echo -e "${CYAN}◇──────────────────────────────────────────────◇${NC}"
+    echo ""
+
     press_enter
 }
 
@@ -1354,12 +1422,38 @@ BANNER_EOF
 }
 
 _apply_banner_config() {
-    if grep -q "^Banner " /etc/ssh/sshd_config 2>/dev/null; then
-        sed -i "s|^Banner .*|Banner $BANNER_FILE|" /etc/ssh/sshd_config
+    local sshd_cfg="/etc/ssh/sshd_config"
+
+    # Write Banner path into sshd_config
+    if grep -q "^Banner " "$sshd_cfg" 2>/dev/null; then
+        sed -i "s|^Banner .*|Banner $BANNER_FILE|" "$sshd_cfg"
     else
-        echo "Banner $BANNER_FILE" >> /etc/ssh/sshd_config
+        echo "Banner $BANNER_FILE" >> "$sshd_cfg"
     fi
-    systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
+
+    # Also remove any #Banner none comment that might suppress it
+    sed -i 's|^#Banner none|Banner '"$BANNER_FILE"'|g' "$sshd_cfg" 2>/dev/null || true
+
+    # Ensure PrintMotd is on so MOTD also shows after login
+    if ! grep -q "^PrintMotd" "$sshd_cfg" 2>/dev/null; then
+        echo "PrintMotd yes" >> "$sshd_cfg"
+    else
+        sed -i 's|^PrintMotd.*|PrintMotd yes|' "$sshd_cfg"
+    fi
+
+    # Validate config before reload — never apply a broken config
+    if ! sshd -t 2>/dev/null; then
+        log_error "BANNER CONFIG FAILED SSHD SYNTAX CHECK — REVERTING"
+        sed -i '/^Banner /d' "$sshd_cfg" 2>/dev/null
+        return 1
+    fi
+
+    # Restart (not just reload) so banner takes effect reliably
+    systemctl restart sshd 2>/dev/null || \
+        systemctl restart ssh 2>/dev/null || \
+        service ssh restart 2>/dev/null || true
+
+    log_success "SSH BANNER ACTIVE — WILL SHOW ON NEXT CONNECTION"
 }
 
 #============================================================
@@ -1779,12 +1873,17 @@ while true; do
             excess=$(( current_sessions - conn_limit ))
             echo "[$(date '+%Y-%m-%d %H:%M:%S')] AUTO-KICK: $user has $current_sessions sessions (limit: $conn_limit) — kicking $excess" >> "$LOG"
 
-            # Get PIDs sorted by age (oldest first) and kill excess
-            pids=$(ps --no-headers -o pid,etime,args | grep "sshd.*$user" | grep -v grep | sort -k2 -r | head -n "$excess" | awk '{print $1}')
-            for pid in $pids; do
-                kill -HUP "$pid" 2>/dev/null && echo "[$(date)] KILLED PID $pid for $user" >> "$LOG"
-            done
-            pkill -o -u "$user" -x sshd 2>/dev/null || true
+            # Use pgrep (reliable across distros) to find and kill oldest excess sessions
+            # pgrep returns PIDs of sshd processes owned by this user, sorted oldest first
+            pids=$(pgrep -u "$user" sshd 2>/dev/null | head -n "$excess")
+            if [[ -n "$pids" ]]; then
+                for pid in $pids; do
+                    kill -HUP "$pid" 2>/dev/null && echo "[$(date '+%Y-%m-%d %H:%M:%S')] KILLED PID $pid for $user" >> "$LOG"
+                done
+            else
+                # Fallback: kill oldest login session
+                pkill -o -u "$user" 2>/dev/null || true
+            fi
         fi
     done < "$USER_DB"
     sleep 30
