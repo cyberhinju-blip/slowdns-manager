@@ -198,15 +198,20 @@ ensure_ssh_alive() {
     systemctl enable ssh  2>/dev/null || systemctl enable sshd  2>/dev/null || true
     systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || \
         service ssh restart 2>/dev/null || true
+    sleep 2   # Give sshd time to bind the port
 
-    # Verify SSH is actually listening
+    # Use 'sshd -T' to get the *effective* port (respects Include directives)
+    # then confirm the listener is owned by sshd — not just any process
     local _ssh_port
-    _ssh_port=$(grep -E "^Port " /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+    _ssh_port=$(sshd -T 2>/dev/null | grep -i "^port " | awk '{print $2}' | head -1)
     _ssh_port=${_ssh_port:-22}
-    if ss -tlnp 2>/dev/null | grep -q ":${_ssh_port}"; then
-        log_success "SSH SERVICE ALIVE — PORT ${_ssh_port} IS LISTENING"
+
+    if ss -tlnp 2>/dev/null | grep -E ":${_ssh_port}\b" | grep -qi "sshd"; then
+        log_success "SSH SERVICE ALIVE — SSHD LISTENING ON PORT ${_ssh_port}"
+    elif ss -tlnp 2>/dev/null | grep -qE ":${_ssh_port}\b"; then
+        log_error "WARNING: PORT ${_ssh_port} OPEN BUT NOT OWNED BY SSHD — INVESTIGATE"
     else
-        log_error "WARNING: SSH NOT DETECTED ON PORT ${_ssh_port} — CHECK SERVICE STATUS"
+        log_error "WARNING: SSH NOT DETECTED ON PORT ${_ssh_port} — CHECK: systemctl status sshd"
     fi
 }
 
@@ -1424,34 +1429,30 @@ BANNER_EOF
 _apply_banner_config() {
     local sshd_cfg="/etc/ssh/sshd_config"
 
-    # Write Banner path into sshd_config
-    if grep -q "^Banner " "$sshd_cfg" 2>/dev/null; then
-        sed -i "s|^Banner .*|Banner $BANNER_FILE|" "$sshd_cfg"
-    else
-        echo "Banner $BANNER_FILE" >> "$sshd_cfg"
-    fi
+    # Step 1: Remove ALL existing Banner directives (active and commented) to start clean
+    sed -i '/^Banner /d; /^#Banner /d' "$sshd_cfg" 2>/dev/null || true
 
-    # Also remove any #Banner none comment that might suppress it
-    sed -i 's|^#Banner none|Banner '"$BANNER_FILE"'|g' "$sshd_cfg" 2>/dev/null || true
+    # Step 2: Append exactly ONE Banner directive — no duplicates possible
+    echo "Banner $BANNER_FILE" >> "$sshd_cfg"
 
-    # Ensure PrintMotd is on so MOTD also shows after login
-    if ! grep -q "^PrintMotd" "$sshd_cfg" 2>/dev/null; then
-        echo "PrintMotd yes" >> "$sshd_cfg"
-    else
+    # Step 3: Ensure PrintMotd yes (for post-login MOTD display)
+    if grep -q "^PrintMotd" "$sshd_cfg" 2>/dev/null; then
         sed -i 's|^PrintMotd.*|PrintMotd yes|' "$sshd_cfg"
+    else
+        echo "PrintMotd yes" >> "$sshd_cfg"
     fi
 
-    # Validate config before reload — never apply a broken config
+    # Step 4: Validate config before touching the running service
     if ! sshd -t 2>/dev/null; then
-        log_error "BANNER CONFIG FAILED SSHD SYNTAX CHECK — REVERTING"
+        log_error "BANNER CONFIG FAILED SSHD SYNTAX CHECK — REVERTING BANNER"
         sed -i '/^Banner /d' "$sshd_cfg" 2>/dev/null
         return 1
     fi
 
-    # Restart (not just reload) so banner takes effect reliably
+    # Step 5: Restart (not reload) so sshd re-reads banner path for new connections
     systemctl restart sshd 2>/dev/null || \
-        systemctl restart ssh 2>/dev/null || \
-        service ssh restart 2>/dev/null || true
+        systemctl restart ssh  2>/dev/null || \
+        service ssh restart    2>/dev/null || true
 
     log_success "SSH BANNER ACTIVE — WILL SHOW ON NEXT CONNECTION"
 }
