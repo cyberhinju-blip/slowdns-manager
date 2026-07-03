@@ -424,8 +424,9 @@ EOF
         return 1
     fi
 
-    # Safe reload (config passed test)
+    # Safe reload (config passed test); then verify SSH is still alive
     systemctl reload sshd 2>/dev/null || service ssh reload 2>/dev/null || true
+    ensure_ssh_alive
     log_success "SSH SERVER OPTIMIZED"
     sleep 1
 }
@@ -999,12 +1000,20 @@ add_ssh_user() {
     echo ""
     echo -e "${CYAN}CREATING USER...${NC}"
 
-    useradd -m -s /bin/bash "$username" 2>/dev/null
-    echo "$username:$password" | chpasswd 2>/dev/null
+    if ! useradd -m -s /bin/bash "$username" 2>/dev/null; then
+        log_error "FAILED TO CREATE SYSTEM USER '$username' — USERADD ERROR"
+        press_enter; return 1
+    fi
+    if ! echo "$username:$password" | chpasswd 2>/dev/null; then
+        log_error "FAILED TO SET PASSWORD — ROLLING BACK"
+        userdel -r "$username" 2>/dev/null || true
+        press_enter; return 1
+    fi
 
     exp_date=$(date -d "+$days days" +"%Y-%m-%d")
     chage -E "$exp_date" "$username" 2>/dev/null
 
+    # Only write to DB after system user is confirmed created
     echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")|$gb_limit|active|$auto_renew_days|$ar_trigger|$conn_limit" >> "$USER_DB"
 
     setup_user_quota "$username" "$gb_limit"
@@ -1051,15 +1060,19 @@ delete_ssh_user() {
     [[ "$confirm" != "yes" ]] && { echo -e "${YELLOW}DELETION CANCELLED${NC}"; press_enter; return; }
 
     pkill -u "$username" 2>/dev/null || true
-    userdel -r "$username" 2>/dev/null || true
-    sed -i "/^$username|/d" "$USER_DB"
-    iptables -D OUTPUT -m owner --uid-owner "$username" -j "slowdns_$username" 2>/dev/null || true
-    iptables -F "slowdns_$username" 2>/dev/null || true
-    iptables -X "slowdns_$username" 2>/dev/null || true
-    rm -f "$USAGE_DIR/$username" "$LIMITER_DIR/$username"
-    update_motd_script
-
-    echo -e "${GREEN}✓ USER $username DELETED${NC}"
+    # Only remove from DB if userdel succeeds (or user was already gone)
+    if userdel -r "$username" 2>/dev/null || ! id "$username" &>/dev/null; then
+        sed -i "/^$username|/d" "$USER_DB"
+        iptables -D OUTPUT -m owner --uid-owner "$username" -j "slowdns_$username" 2>/dev/null || true
+        iptables -F "slowdns_$username" 2>/dev/null || true
+        iptables -X "slowdns_$username" 2>/dev/null || true
+        rm -f "$USAGE_DIR/$username" "$LIMITER_DIR/$username"
+        update_motd_script
+        echo -e "${GREEN}✓ USER $username DELETED${NC}"
+    else
+        log_error "USERDEL FAILED — USER MAY HAVE ACTIVE PROCESSES. TRY AGAIN."
+        press_enter; return 1
+    fi
     log_success "USER $username REMOVED"
     press_enter
 }
@@ -1414,8 +1427,8 @@ BANNER_EOF
                 read -rp "REMOVE SSH BANNER? [yes/no]: " confirm
                 if [[ "$confirm" == "yes" ]]; then
                     rm -f "$BANNER_FILE"
-                    sed -i '/^Banner /d' /etc/ssh/sshd_config 2>/dev/null
-                    systemctl reload sshd 2>/dev/null || true
+                    sed -i '/^Banner /d; /^#Banner /d' /etc/ssh/sshd_config 2>/dev/null
+                    ensure_ssh_alive
                     log_success "BANNER REMOVED"
                 fi
                 press_enter
@@ -2343,9 +2356,12 @@ check_for_updates() {
     echo ""
     local script_path
     script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-    local tmp_update="/tmp/slowdns_update_$$.sh"
+    # mktemp creates a unique file owned by root (600 perms) — no symlink race possible
+    local tmp_update
+    tmp_update=$(mktemp /tmp/slowdns_update_XXXXXX.sh)
+    chmod 600 "$tmp_update"
 
-    fun_bar "curl -s '$GITHUB_RAW' -o '$tmp_update'" "DOWNLOADING v${latest_ver}"
+    fun_bar "curl -fsSL '$GITHUB_RAW' -o '$tmp_update'" "DOWNLOADING v${latest_ver}"
 
     if [[ ! -s "$tmp_update" ]]; then
         log_error "DOWNLOAD FAILED. TRY AGAIN LATER."
