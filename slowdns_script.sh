@@ -45,7 +45,7 @@ BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
-SCRIPT_VERSION="9.0.0"
+SCRIPT_VERSION="9.2.0"
 GITHUB_RAW="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/slowdns_script.sh"
 GITHUB_VER="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/version.txt"
 
@@ -2684,7 +2684,7 @@ ssh_menu() {
         echo ""
         dsep
         echo -e "  ${YELLOW}🚨 EMERGENCY RECOVERY (run on server if users are locked out):${NC}"
-        echo -e "  ${WHITE}sed -i 's/|locked|/|active|/g' /etc/slowdns/users.db; screen -r -S limiter_daemon -X quit 2>/dev/null; rm -f /etc/slowdns/limiter_autostart /etc/slowdns/limiter_daemon.sh; echo DONE${NC}"
+        echo -e "  ${WHITE}sed -i 's/|locked|/|active|/g' /etc/slowdns/users.txt; screen -r -S limiter_daemon -X quit 2>/dev/null; rm -f /etc/slowdns/limiter_autostart /etc/slowdns/limiter_daemon.sh; echo DONE${NC}"
         dsep
         echo ""
         read -rp "CHOICE: " choice
