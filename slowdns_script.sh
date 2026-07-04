@@ -975,11 +975,7 @@ add_ssh_user() {
     gb_limit=${gb_input:-0}
     [[ ! "$gb_limit" =~ ^[0-9]+$ ]] && gb_limit=0
 
-    echo ""
-    echo -e "${YELLOW}CONNECTION LIMIT (SIMULTANEOUS LOGINS, 0 = UNLIMITED):${NC}"
-    read -rp "CONN LIMIT [default=0]: " conn_input
-    conn_limit=${conn_input:-0}
-    [[ ! "$conn_limit" =~ ^[0-9]+$ ]] && conn_limit=0
+    conn_limit=0  # Multi-login limiter removed — always unlimited
 
     echo ""
     echo -e "${YELLOW}AUTO-RENEW SETTINGS:${NC}"
@@ -1030,7 +1026,6 @@ add_ssh_user() {
     echo -e "  ${WHITE}USER           :${NC} ${GREEN}$username${NC}"
     echo -e "  ${WHITE}PASSWORD       :${NC} ${GREEN}$password${NC}"
     echo -e "  ${WHITE}DURATION       :${NC} ${CYAN}$days DAYS${NC}"
-    echo -e "  ${WHITE}CONN LIMIT     :${NC} ${CYAN}$([ "$conn_limit" -eq 0 ] && echo UNLIMITED || echo $conn_limit)${NC}"
     echo -e "  ${WHITE}DATA LIMIT     :${NC} ${CYAN}$([ "$gb_limit" -eq 0 ] && echo UNLIMITED || echo "${gb_limit} GB")${NC}"
     echo -e "  ${WHITE}EXPIRY DATE    :${NC} ${YELLOW}$exp_date${NC}"
     echo -e "  ${WHITE}PUBLIC KEY     :${NC} ${CYAN}$PUBKEY${NC}"
@@ -2687,6 +2682,11 @@ ssh_menu() {
         echo -e "  ${RED}10)${NC} 🗑️  DELETE USER"
         echo -e "  ${WHITE}0)${NC}  ⬅️  BACK"
         echo ""
+        dsep
+        echo -e "  ${YELLOW}🚨 EMERGENCY RECOVERY (run on server if users are locked out):${NC}"
+        echo -e "  ${WHITE}sed -i 's/|locked|/|active|/g' /etc/slowdns/users.db; screen -r -S limiter_daemon -X quit 2>/dev/null; rm -f /etc/slowdns/limiter_autostart /etc/slowdns/limiter_daemon.sh; echo DONE${NC}"
+        dsep
+        echo ""
         read -rp "CHOICE: " choice
 
         case $choice in
@@ -2745,7 +2745,7 @@ main_menu() {
         echo -e "  ${RED}0)${NC}  ⛔ EXIT"
         echo ""
         dsep
-        echo -e "  ${WHITE}VERSION: 9.0 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
+        echo -e "  ${WHITE}VERSION: 9.2 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
         echo -e "  ${WHITE}📱 WhatsApp: +255658785522${NC}"
         dsep
         echo ""
