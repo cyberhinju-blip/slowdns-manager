@@ -41,7 +41,6 @@ SSH_DIR="/etc/slowdns"
 USER_DB="$SSH_DIR/users.txt"
 USAGE_DIR="$SSH_DIR/usage"
 BACKUP_DIR="$SSH_DIR/backups"
-LIMITER_DIR="$SSH_DIR/limiter"
 BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
@@ -50,7 +49,7 @@ SCRIPT_VERSION="9.0.0"
 GITHUB_RAW="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/slowdns_script.sh"
 GITHUB_VER="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/version.txt"
 
-mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR" "$USAGE_DIR" "$BACKUP_DIR" "$LIMITER_DIR"
+mkdir -p "$INSTALL_DIR" "$SSH_DIR" "$LOG_DIR" "$USAGE_DIR" "$BACKUP_DIR"
 touch "$USER_DB"
 
 #============================================================
@@ -1017,7 +1016,6 @@ add_ssh_user() {
     echo "$username|$password|$exp_date|$(date +"%Y-%m-%d")|$gb_limit|active|$auto_renew_days|$ar_trigger|$conn_limit" >> "$USER_DB"
 
     setup_user_quota "$username" "$gb_limit"
-    [[ "$conn_limit" -gt 0 ]] && echo "$conn_limit" > "$LIMITER_DIR/$username"
     update_motd_script
 
     PUBLIC_IP=$(curl -s ifconfig.me 2>/dev/null || curl -s icanhazip.com 2>/dev/null || echo "YOUR_SERVER_IP")
@@ -1066,7 +1064,7 @@ delete_ssh_user() {
         iptables -D OUTPUT -m owner --uid-owner "$username" -j "slowdns_$username" 2>/dev/null || true
         iptables -F "slowdns_$username" 2>/dev/null || true
         iptables -X "slowdns_$username" 2>/dev/null || true
-        rm -f "$USAGE_DIR/$username" "$LIMITER_DIR/$username"
+        rm -f "$USAGE_DIR/$username"
         update_motd_script
         echo -e "${GREEN}✓ USER $username DELETED${NC}"
     else
@@ -1820,19 +1818,8 @@ ssh_monitor() {
                 local sessions="${user_sessions[$wuser]}"
                 local ip="${user_ips[$wuser]:-UNKNOWN}"
 
-                # Check connection limit
-                local conn_limit=0
-                local user_db_line
-                user_db_line=$(grep "^$wuser|" "$USER_DB" 2>/dev/null)
-                if [[ -n "$user_db_line" ]]; then
-                    conn_limit=$(echo "$user_db_line" | cut -d'|' -f9)
-                    conn_limit=${conn_limit:-0}
-                fi
-
                 local status_col
-                if [[ "$conn_limit" -gt 0 && "$sessions" -gt "$conn_limit" ]]; then
-                    status_col="${RED}OVER LIMIT${NC}"
-                elif [[ "$sessions" -gt 0 ]]; then
+                if [[ "$sessions" -gt 0 ]]; then
                     status_col="${GREEN}ONLINE${NC}"
                 else
                     status_col="${YELLOW}IDLE${NC}"
@@ -1860,158 +1847,6 @@ ssh_monitor() {
     done
 }
 
-#============================================================
-# ★ MULTI-LOGIN LIMITER
-#============================================================
-
-# Background daemon script
-_create_limiter_daemon() {
-    cat > /etc/slowdns/limiter_daemon.sh << 'DAEMON_EOF'
-#!/bin/bash
-USER_DB="/etc/slowdns/users.txt"
-LIMITER_DIR="/etc/slowdns/limiter"
-LOG="/var/log/dnstt/limiter.log"
-
-while true; do
-    [[ ! -f "$USER_DB" ]] && sleep 30 && continue
-    while IFS='|' read -r user pass exp created gb_limit acc_status ar_days ar_trigger conn_limit; do
-        [[ -z "$user" ]] && continue
-        conn_limit=${conn_limit:-0}
-        [[ "$conn_limit" -eq 0 ]] && continue
-        [[ "${acc_status:-active}" != "active" ]] && continue
-
-        # Count current sessions
-        current_sessions=$(who 2>/dev/null | awk -v u="$user" '$1==u' | wc -l)
-
-        if [[ "$current_sessions" -gt "$conn_limit" ]]; then
-            excess=$(( current_sessions - conn_limit ))
-            echo "[$(date '+%Y-%m-%d %H:%M:%S')] AUTO-KICK: $user has $current_sessions sessions (limit: $conn_limit) — kicking $excess" >> "$LOG"
-
-            # Use pgrep (reliable across distros) to find and kill oldest excess sessions
-            # pgrep returns PIDs of sshd processes owned by this user, sorted oldest first
-            pids=$(pgrep -u "$user" sshd 2>/dev/null | head -n "$excess")
-            if [[ -n "$pids" ]]; then
-                for pid in $pids; do
-                    kill -HUP "$pid" 2>/dev/null && echo "[$(date '+%Y-%m-%d %H:%M:%S')] KILLED PID $pid for $user" >> "$LOG"
-                done
-            else
-                # Fallback: kill oldest login session
-                pkill -o -u "$user" 2>/dev/null || true
-            fi
-        fi
-    done < "$USER_DB"
-    sleep 30
-done
-DAEMON_EOF
-    chmod +x /etc/slowdns/limiter_daemon.sh
-}
-
-start_limiter_daemon() {
-    _create_limiter_daemon
-    if screen -list 2>/dev/null | grep -q "limiter_daemon"; then
-        screen -r -S "limiter_daemon" -X quit 2>/dev/null || true
-        sleep 1
-    fi
-    screen -dmS limiter_daemon /etc/slowdns/limiter_daemon.sh
-    echo "screen -dmS limiter_daemon /etc/slowdns/limiter_daemon.sh" > /etc/slowdns/limiter_autostart
-    log_success "MULTI-LOGIN LIMITER DAEMON STARTED"
-}
-
-stop_limiter_daemon() {
-    screen -r -S "limiter_daemon" -X quit 2>/dev/null || true
-    screen -wipe 2>/dev/null || true
-    rm -f /etc/slowdns/limiter_autostart
-    log_success "MULTI-LOGIN LIMITER DAEMON STOPPED"
-}
-
-manage_limiter() {
-    while true; do
-        show_banner
-        dtitle "🔐 MULTI-LOGIN LIMITER"
-        dsep
-        echo ""
-
-        local daemon_status="${RED}STOPPED${NC}"
-        screen -list 2>/dev/null | grep -q "limiter_daemon" && daemon_status="${GREEN}RUNNING${NC}"
-
-        echo -e "  ${WHITE}DAEMON STATUS:${NC} $daemon_status"
-        echo ""
-        echo -e "${YELLOW}USER CONNECTION LIMITS:${NC}"
-        echo ""
-
-        if [[ -s "$USER_DB" ]]; then
-            printf "  ${WHITE}%-16s%-14s%-12s${NC}\n" "USERNAME" "CONN LIMIT" "STATUS"
-            dsep_s
-            while IFS='|' read -r user _ _ _ _ acc_status _ _ conn_limit; do
-                [[ -z "$user" ]] && continue
-                conn_limit=${conn_limit:-0}
-                local lim_display
-                [[ "$conn_limit" -eq 0 ]] && lim_display="${GREEN}UNLIMITED${NC}" || lim_display="${CYAN}MAX $conn_limit${NC}"
-                local st_display
-                [[ "${acc_status:-active}" == "locked" ]] && st_display="${RED}LOCKED${NC}" || st_display="${GREEN}ACTIVE${NC}"
-                printf "  %-16s" "$user"
-                echo -ne "$lim_display"
-                printf "       "
-                echo -e "$st_display"
-            done < "$USER_DB"
-        else
-            echo -e "  ${YELLOW}NO USERS FOUND${NC}"
-        fi
-
-        echo ""
-        dsep
-        echo ""
-        echo -e "  ${GREEN}1)${NC} ▶  START LIMITER DAEMON"
-        echo -e "  ${RED}2)${NC} ■  STOP LIMITER DAEMON"
-        echo -e "  ${CYAN}3)${NC} ✏️  CHANGE CONNECTION LIMIT FOR A USER"
-        echo -e "  ${WHITE}0)${NC} ⬅️  BACK"
-        echo ""
-        read -rp "CHOICE: " choice
-
-        case $choice in
-            1) start_limiter_daemon; press_enter ;;
-            2) stop_limiter_daemon; press_enter ;;
-            3)
-                echo ""
-                read -rp "USERNAME: " uname
-                [[ -z "$uname" ]] && { log_error "USERNAME REQUIRED"; sleep 1; continue; }
-                local user_line
-                user_line=$(grep "^$uname|" "$USER_DB" 2>/dev/null)
-                [[ -z "$user_line" ]] && { log_error "USER NOT FOUND"; sleep 1; continue; }
-
-                IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
-                echo ""
-                echo -e "${YELLOW}CURRENT LIMIT: $([ "${conn_limit:-0}" -eq 0 ] && echo UNLIMITED || echo "${conn_limit:-0}")${NC}"
-                echo ""
-                echo -e "  ${CYAN}0)${NC} UNLIMITED"
-                echo -e "  ${CYAN}1)${NC} 1 SESSION"
-                echo -e "  ${CYAN}2)${NC} 2 SESSIONS"
-                echo -e "  ${CYAN}3)${NC} 3 SESSIONS"
-                echo -e "  ${CYAN}4)${NC} 5 SESSIONS"
-                echo -e "  ${CYAN}5)${NC} CUSTOM"
-                echo ""
-                read -rp "CHOICE [0-5]: " lim_choice
-                case $lim_choice in
-                    0) new_limit=0 ;;
-                    1) new_limit=1 ;;
-                    2) new_limit=2 ;;
-                    3) new_limit=3 ;;
-                    4) new_limit=5 ;;
-                    5) read -rp "ENTER CUSTOM LIMIT: " new_limit; [[ ! "$new_limit" =~ ^[0-9]+$ ]] && new_limit=0 ;;
-                    *) new_limit=${conn_limit:-0} ;;
-                esac
-
-                sed -i "/^$uname|/c\\$uname|$pass|$exp|$created|${gb_limit:-0}|${acc_status:-active}|${ar_days:-0}|${ar_trigger:-0}|$new_limit" "$USER_DB"
-                [[ "$new_limit" -gt 0 ]] && echo "$new_limit" > "$LIMITER_DIR/$uname" || rm -f "$LIMITER_DIR/$uname"
-
-                log_success "LIMIT UPDATED: $uname → $([ "$new_limit" -eq 0 ] && echo UNLIMITED || echo "$new_limit SESSIONS")"
-                press_enter
-                ;;
-            0) return ;;
-            *) log_error "INVALID CHOICE"; sleep 1 ;;
-        esac
-    done
-}
 
 #============================================================
 # ★ SERVER OPTIMIZER
@@ -2279,7 +2114,7 @@ expired_users_cleaner() {
                 pkill -u "$u" 2>/dev/null || true
                 userdel -r "$u" 2>/dev/null || true
                 sed -i "/^$(printf '%s' "$u" | sed 's/[[\.*^$()+?{}|]/\\&/g')|/d" "$USER_DB"
-                rm -f "$USAGE_DIR/$u" "$LIMITER_DIR/$u"
+                rm -f "$USAGE_DIR/$u"
                 log_success "USER $u DELETED"
                 deleted=$((deleted+1))
             done
@@ -2466,7 +2301,6 @@ view_logs() {
     echo -e "  ${CYAN}3)${NC} ERROR LOG"
     echo -e "  ${CYAN}4)${NC} SYSTEM JOURNAL"
     echo -e "  ${CYAN}5)${NC} LIVE TAIL (REAL-TIME)"
-    echo -e "  ${CYAN}6)${NC} LIMITER LOG"
     echo -e "  ${WHITE}0)${NC} BACK"
     echo ""
     read -rp "CHOICE: " log_choice
@@ -2477,7 +2311,6 @@ view_logs() {
         3) [[ -f "$LOG_DIR/dnstt-error.log" ]] && less +G "$LOG_DIR/dnstt-error.log" || echo -e "${RED}NO ERRORS LOGGED${NC}" ;;
         4) journalctl -u dnstt --no-pager -n 100 ;;
         5) echo -e "${YELLOW}FOLLOWING LOGS (Ctrl+C TO STOP)...${NC}"; tail -f "$LOG_DIR/dnstt-server.log" "$LOG_DIR/dnstt-error.log" ;;
-        6) [[ -f "$LOG_DIR/limiter.log" ]] && less +G "$LOG_DIR/limiter.log" || echo -e "${RED}NO LIMITER LOG YET${NC}" ;;
         0) return ;;
         *) echo -e "${RED}INVALID CHOICE${NC}"; sleep 1 ;;
     esac
@@ -2882,9 +2715,8 @@ system_menu() {
         echo -e "  ${CYAN}1)${NC}  📊 VPS INFO PANEL"
         echo -e "  ${GREEN}2)${NC}  ⚙️  SERVER OPTIMIZER"
         echo -e "  ${YELLOW}3)${NC}  👁️  SSH CONNECTION MONITOR"
-        echo -e "  ${PURPLE}4)${NC}  🔐 MULTI-LOGIN LIMITER"
-        echo -e "  ${RED}5)${NC}  🧹 EXPIRED USERS CLEANER"
-        echo -e "  ${BLUE}6)${NC}  🔄 SCRIPT AUTO-UPDATER"
+        echo -e "  ${RED}4)${NC}  🧹 EXPIRED USERS CLEANER"
+        echo -e "  ${BLUE}5)${NC}  🔄 SCRIPT AUTO-UPDATER"
         echo -e "  ${WHITE}0)${NC}  ⬅️  BACK"
         echo ""
         read -rp "CHOICE: " choice
@@ -2893,9 +2725,8 @@ system_menu() {
             1) vps_info_panel ;;
             2) server_optimizer ;;
             3) ssh_monitor ;;
-            4) manage_limiter ;;
-            5) expired_users_cleaner ;;
-            6) check_for_updates ;;
+            4) expired_users_cleaner ;;
+            5) check_for_updates ;;
             0) return ;;
             *) log_error "INVALID CHOICE"; sleep 1 ;;
         esac
@@ -2961,23 +2792,15 @@ EOF
 }
 
 #============================================================
-# AUTOSTART LIMITER IF CONFIGURED
-#============================================================
-_autostart_limiter() {
-    if [[ -f /etc/slowdns/limiter_autostart ]]; then
-        if ! screen -list 2>/dev/null | grep -q "limiter_daemon"; then
-            screen -dmS limiter_daemon /etc/slowdns/limiter_daemon.sh 2>/dev/null || true
-        fi
-    fi
-}
-
-#============================================================
 # MAIN EXECUTION
 #============================================================
+# Stop any old limiter daemon left over from a previous install
+screen -r -S limiter_daemon -X quit 2>/dev/null || true
+rm -f /etc/slowdns/limiter_autostart /etc/slowdns/limiter_daemon.sh 2>/dev/null || true
+
 [[ ! -f /usr/local/bin/menu ]] && [[ $EUID -eq 0 ]] && create_menu_command 2>/dev/null
 
 check_root
 check_bash_version
 check_os
-_autostart_limiter
 main_menu
