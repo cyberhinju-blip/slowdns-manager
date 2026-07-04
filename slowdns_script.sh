@@ -45,7 +45,7 @@ BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
-SCRIPT_VERSION="9.2.0"
+SCRIPT_VERSION="9.2.1"
 GITHUB_RAW="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/slowdns_script.sh"
 GITHUB_VER="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/version.txt"
 
@@ -1192,10 +1192,10 @@ USER_DB="/etc/slowdns/users.txt"
 USAGE_DIR="/etc/slowdns/usage"
 CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 RED='\033[0;31m'; WHITE='\033[1;37m'; BRED='\033[1;31m'; NC='\033[0m'
-[[ ! -f "$USER_DB" ]] && exit 0
+[[ ! -f "$USER_DB" ]] && return 0
 me=$(whoami)
 user_line=$(grep "^${me}|" "$USER_DB" 2>/dev/null)
-[[ -z "$user_line" ]] && exit 0
+[[ -z "$user_line" ]] && return 0
 IFS='|' read -r u pass exp created gb_limit acc_status ar_days ar_trigger conn_limit <<< "$user_line"
 gb_limit=${gb_limit:-0}; acc_status=${acc_status:-active}; conn_limit=${conn_limit:-0}
 current=$(date +%s)
@@ -2745,7 +2745,7 @@ main_menu() {
         echo -e "  ${RED}0)${NC}  ⛔ EXIT"
         echo ""
         dsep
-        echo -e "  ${WHITE}VERSION: 9.2 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
+        echo -e "  ${WHITE}VERSION: 9.2.1 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
         echo -e "  ${WHITE}📱 WhatsApp: +255658785522${NC}"
         dsep
         echo ""
