@@ -45,7 +45,7 @@ BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
-SCRIPT_VERSION="9.2.1"
+SCRIPT_VERSION="9.2.2"
 GITHUB_RAW="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/slowdns_script.sh"
 GITHUB_VER="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/version.txt"
 
@@ -403,8 +403,10 @@ optimize_ssh_server() {
     local macs="hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com"
     local kex="curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512"
 
-    # Remove old optimization lines only (never Port / AuthorizedKeysFile / etc.)
-    sed -i '/^Ciphers /d; /^MACs /d; /^KexAlgorithms /d; /^Compression /d; /^IPQoS /d; /^# BLACK KILLER/d' "$sshd_cfg"
+    # Remove both our old block AND Samwelmushi's block (avoid conflicts when both scripts ran)
+    sed -i '/^# DNSTT ULTRA/,/^# END DNSTT/d' "$sshd_cfg" 2>/dev/null || true
+    sed -i '/^# BLACK KILLER/,/^IPQoS /d' "$sshd_cfg" 2>/dev/null || true
+    sed -i '/^Ciphers /d; /^MACs /d; /^KexAlgorithms /d; /^Compression /d; /^IPQoS /d; /^RekeyLimit /d; /^MaxSessions /d; /^MaxStartups /d; /^MaxAuthTries /d; /^PrintMotd /d; /^PrintLastLog /d; /^TCPKeepAlive /d; /^ClientAliveInterval /d; /^ClientAliveCountMax /d' "$sshd_cfg"
     cat >> "$sshd_cfg" << EOF
 
 # BLACK KILLER SSH OPTIMIZATION v9.0
@@ -975,7 +977,11 @@ add_ssh_user() {
     gb_limit=${gb_input:-0}
     [[ ! "$gb_limit" =~ ^[0-9]+$ ]] && gb_limit=0
 
-    conn_limit=0  # Multi-login limiter removed — always unlimited
+    echo ""
+    echo -e "${YELLOW}CONNECTION LIMIT (SIMULTANEOUS LOGINS, 0 = UNLIMITED):${NC}"
+    read -rp "CONN LIMIT [default=0]: " conn_input
+    conn_limit=${conn_input:-0}
+    [[ ! "$conn_limit" =~ ^[0-9]+$ ]] && conn_limit=0
 
     echo ""
     echo -e "${YELLOW}AUTO-RENEW SETTINGS:${NC}"
@@ -1026,6 +1032,7 @@ add_ssh_user() {
     echo -e "  ${WHITE}USER           :${NC} ${GREEN}$username${NC}"
     echo -e "  ${WHITE}PASSWORD       :${NC} ${GREEN}$password${NC}"
     echo -e "  ${WHITE}DURATION       :${NC} ${CYAN}$days DAYS${NC}"
+    echo -e "  ${WHITE}CONN LIMIT     :${NC} ${CYAN}$([ "$conn_limit" -eq 0 ] && echo UNLIMITED || echo $conn_limit)${NC}"
     echo -e "  ${WHITE}DATA LIMIT     :${NC} ${CYAN}$([ "$gb_limit" -eq 0 ] && echo UNLIMITED || echo "${gb_limit} GB")${NC}"
     echo -e "  ${WHITE}EXPIRY DATE    :${NC} ${YELLOW}$exp_date${NC}"
     echo -e "  ${WHITE}PUBLIC KEY     :${NC} ${CYAN}$PUBKEY${NC}"
@@ -2745,7 +2752,7 @@ main_menu() {
         echo -e "  ${RED}0)${NC}  ⛔ EXIT"
         echo ""
         dsep
-        echo -e "  ${WHITE}VERSION: 9.2.1 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
+        echo -e "  ${WHITE}VERSION: 9.2.2 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
         echo -e "  ${WHITE}📱 WhatsApp: +255658785522${NC}"
         dsep
         echo ""
