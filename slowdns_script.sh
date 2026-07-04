@@ -45,7 +45,7 @@ BANNER_FILE="/etc/ssh/slowdns_banner"
 LOG_DIR="/var/log/dnstt"
 DNSTT_SERVER="/usr/local/bin/dnstt-server"
 DNSTT_CLIENT="/usr/local/bin/dnstt-client"
-SCRIPT_VERSION="9.2.2"
+SCRIPT_VERSION="9.2.3"
 GITHUB_RAW="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/slowdns_script.sh"
 GITHUB_VER="https://raw.githubusercontent.com/cyberhinju-blip/slowdns-manager/main/version.txt"
 
@@ -407,13 +407,37 @@ optimize_ssh_server() {
     sed -i '/^# DNSTT ULTRA/,/^# END DNSTT/d' "$sshd_cfg" 2>/dev/null || true
     sed -i '/^# BLACK KILLER/,/^IPQoS /d' "$sshd_cfg" 2>/dev/null || true
     sed -i '/^Ciphers /d; /^MACs /d; /^KexAlgorithms /d; /^Compression /d; /^IPQoS /d; /^RekeyLimit /d; /^MaxSessions /d; /^MaxStartups /d; /^MaxAuthTries /d; /^PrintMotd /d; /^PrintLastLog /d; /^TCPKeepAlive /d; /^ClientAliveInterval /d; /^ClientAliveCountMax /d' "$sshd_cfg"
-    cat >> "$sshd_cfg" << EOF
+    cat >> "$sshd_cfg" << 'EOF'
 
-# BLACK KILLER SSH OPTIMIZATION v9.0
-Ciphers $ciphers
-MACs $macs
-KexAlgorithms $kex
+# BLACK KILLER SSH OPTIMIZATION v9.2
+# ── Keepalive: keep tunnel alive through DNS relay ────────────────────────────
+TCPKeepAlive yes
+ClientAliveInterval 20
+ClientAliveCountMax 6
+
+# ── Compression: zlib after auth — more payload per 512B DNS query ───────────
 Compression delayed
+
+# ── Cipher order: lowest overhead first ──────────────────────────────────────
+Ciphers chacha20-poly1305@openssh.com,aes128-gcm@openssh.com,aes256-gcm@openssh.com,aes128-ctr,aes256-ctr,aes192-ctr
+
+# ── MACs: ETM-only — authenticate-then-encrypt, cheaper per packet ───────────
+MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com,umac-128-etm@openssh.com
+
+# ── Key exchange: fastest curve ───────────────────────────────────────────────
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,ecdh-sha2-nistp256,diffie-hellman-group16-sha512
+
+# ── Rekey: short limit avoids long stalls in DNS tunnel ──────────────────────
+RekeyLimit 32M 15m
+
+# ── Concurrency: allow many simultaneous sessions ────────────────────────────
+MaxSessions 500
+MaxStartups 200:30:1000
+MaxAuthTries 8
+
+# ── Misc: save bytes, reduce noise ───────────────────────────────────────────
+PrintMotd no
+PrintLastLog no
 IPQoS lowdelay throughput
 EOF
 
@@ -2752,7 +2776,7 @@ main_menu() {
         echo -e "  ${RED}0)${NC}  ⛔ EXIT"
         echo ""
         dsep
-        echo -e "  ${WHITE}VERSION: 9.2.2 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
+        echo -e "  ${WHITE}VERSION: 9.2.3 ULTRA DIAMOND | ${BRED}CREATED BY BLACK KILLER${NC}"
         echo -e "  ${WHITE}📱 WhatsApp: +255658785522${NC}"
         dsep
         echo ""
